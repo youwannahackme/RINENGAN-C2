@@ -1,0 +1,281 @@
+{% extends "base.html" %}
+{% block title %}WHOAMI_404 // Rinengan C2 Operations{% endblock %}
+{% block content %}
+<div class="auth-page">
+    <div class="auth-bg-wrapper">
+        <div class="auth-bg-image"></div>
+        <div class="auth-bg-overlay"></div>
+        <canvas id="authCanvas" class="auth-canvas"></canvas>
+    </div>
+
+    <header class="auth-top-nav">
+        <div class="auth-brand">
+            <div class="brand-shield">
+                <i class="ph-bold ph-shield-check"></i>
+            </div>
+            <span>WHOAMI_404 // RINENGAN C2</span>
+        </div>
+        <div class="auth-controls">
+            <button type="button" class="auth-focus-toggle" id="toggleArtworkBtn" onclick="toggleArtworkFocus()" title="Toggle UI panel to view artwork & quote cleanly">
+                <i class="ph ph-eye"></i>
+                <span>Focus Artwork & Quote</span>
+            </button>
+        </div>
+    </header>
+
+    <main class="auth-main-layout">
+        <!-- Docked on the Left so the center quote and Obito's face on the right are 100% unobstructed! -->
+        <div class="auth-card-container">
+            <div class="auth-card">
+                <div class="auth-card-header">
+                    <div class="auth-badge">
+                        <span class="pulse-dot"></span>
+                        <span>SECURITY LEVEL: MAXIMUM</span>
+                    </div>
+                    <h2>OPERATOR AUTHENTICATION</h2>
+                    <p class="auth-subtitle">Encrypted Command & Control Access</p>
+                </div>
+
+                <form method="POST" class="auth-form" autocomplete="off">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    
+                    <div class="form-field">
+                        <label for="login-user">
+                            <i class="ph ph-terminal-window"></i>
+                            <span>Operator Identity</span>
+                        </label>
+                        <div class="input-wrapper">
+                            <input type="text" id="login-user" name="username" placeholder="Enter username" required autofocus>
+                        </div>
+                    </div>
+
+                    <div class="form-field">
+                        <label for="login-pass">
+                            <i class="ph ph-key"></i>
+                            <span>Passphrase</span>
+                        </label>
+                        <div class="input-wrapper">
+                            <input type="password" id="login-pass" name="password" placeholder="Enter operator passphrase" required autofocus>
+                        </div>
+                    </div>
+
+                    {% if require_totp %}
+                    <div class="form-field totp-field">
+                        <label for="login-totp">
+                            <i class="ph ph-shield-check"></i>
+                            <span>TOTP Auth Code</span>
+                        </label>
+                        <div class="input-wrapper">
+                            <input type="text" id="login-totp" name="totp" placeholder="6-digit code" maxlength="6" inputmode="numeric" pattern="[0-9]{6}" required>
+                        </div>
+                    </div>
+                    {% endif %}
+
+                    <button type="submit" class="auth-submit">
+                        <i class="ph-bold ph-sign-in"></i>
+                        <span>Authenticate Session</span>
+                    </button>
+                </form>
+
+                {% if error %}
+                <div class="auth-error">
+                    <i class="ph ph-warning-circle"></i>
+                    <span>{{ error }}</span>
+                </div>
+                {% endif %}
+
+                <div class="auth-footer">
+                    <div class="auth-secure">
+                        <i class="ph ph-fingerprint"></i>
+                        <span>AES-256-GCM Encrypted Channel</span>
+                    </div>
+                    <div class="auth-status">
+                        <span class="status-indicator"></span>
+                        <span>NODE: ACTIVE</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Center & Right Stage: Leaves space for quote and Obito artwork without overlapping HTML text -->
+        <div class="auth-artwork-stage"></div>
+    </main>
+
+    <footer class="auth-bottom-bar">
+        <div class="sys-info">SYSTEM STATUS: <span class="t-green">ONLINE</span> // TARGET: <span class="t-blue">RINENGAN_C2</span></div>
+        <div class="sys-time" id="loginClock">00:00:00 UTC</div>
+    </footer>
+</div>
+
+<script src="{{ url_for('static', filename='js/auth-particles.js') }}"></script>
+<script>
+let authBgEngine = null;
+
+// Apply cached theme instantly to prevent any theme flash on refresh
+(function applyCachedTheme() {
+    try {
+        const cached = localStorage.getItem('auth_theme_vars');
+        if (cached) {
+            const vars = JSON.parse(cached);
+            const page = document.querySelector('.auth-page');
+            if (page && vars) {
+                Object.keys(vars).forEach(key => page.style.setProperty(key, vars[key]));
+            }
+        }
+    } catch(e){}
+})();
+
+document.addEventListener('DOMContentLoaded', () => {
+    extractThemeFromBgImage();
+    if (window.AuthBackgroundEngine) {
+        authBgEngine = new AuthBackgroundEngine('authCanvas');
+    }
+});
+
+function rgbToHsv(r, g, b) {
+    r /= 255; g /= 255; b /= 255;
+    const max = Math.max(r, g, b), min = Math.min(r, g, b);
+    let h, s, v = max;
+    const d = max - min;
+    s = max === 0 ? 0 : d / max;
+    if (max === min) {
+        h = 0;
+    } else {
+        switch (max) {
+            case r: h = (g - b) / d + (g < b ? 6 : 0); break;
+            case g: h = (b - r) / d + 2; break;
+            case b: h = (r - g) / d + 4; break;
+        }
+        h /= 6;
+    }
+    return [h, s, v];
+}
+
+function hsvToRgb(h, s, v) {
+    let r, g, b;
+    const i = Math.floor(h * 6);
+    const f = h * 6 - i;
+    const p = v * (1 - s);
+    const q = v * (1 - f * s);
+    const t = v * (1 - (1 - f) * s);
+    switch (i % 6) {
+        case 0: r = v; g = t; b = p; break;
+        case 1: r = q; g = v; b = p; break;
+        case 2: r = p; g = v; b = t; break;
+        case 3: r = p; g = q; b = v; break;
+        case 4: r = t; g = p; b = v; break;
+        case 5: r = v; g = p; b = q; break;
+    }
+    return [Math.round(r * 255), Math.round(g * 255), Math.round(b * 255)];
+}
+
+function extractThemeFromBgImage() {
+    const bgElem = document.querySelector('.auth-bg-image');
+    if (!bgElem) return;
+
+    const style = window.getComputedStyle(bgElem);
+    const bgUrlMatch = style.backgroundImage.match(/url\(["']?(.*?)["']?\)/);
+    if (!bgUrlMatch || !bgUrlMatch[1]) return;
+
+    const imgUrl = bgUrlMatch[1];
+    const img = new Image();
+    img.crossOrigin = 'Anonymous';
+    img.onload = () => {
+        try {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            canvas.width = 64;
+            canvas.height = 64;
+            ctx.drawImage(img, 0, 0, 64, 64);
+
+            const imgData = ctx.getImageData(0, 0, 64, 64).data;
+            let bestPixel = null;
+            let maxVibrancy = -1;
+
+            for (let i = 0; i < imgData.length; i += 4) {
+                const r = imgData[i];
+                const g = imgData[i + 1];
+                const b = imgData[i + 2];
+                const a = imgData[i + 3];
+                if (a < 128) continue;
+
+                const [h, s, v] = rgbToHsv(r, g, b);
+                if (v > 0.2 && s > 0.22) {
+                    const score = (s * 2.2) + (v * 1.0);
+                    if (score > maxVibrancy) {
+                        maxVibrancy = score;
+                        bestPixel = [r, g, b, h, s, v];
+                    }
+                }
+            }
+
+            let bestRgb = [255, 59, 92]; // Default vibrant crimson red
+            if (bestPixel) {
+                const [r, g, b, h, s, v] = bestPixel;
+                // Normalize hue to vivid UI accent: force Saturation >= 0.72, Value >= 0.88
+                bestRgb = hsvToRgb(h, Math.max(s, 0.72), Math.max(v, 0.88));
+            }
+
+            const secondaryRgb = [
+                Math.max(0, Math.min(255, bestRgb[0] - 25)),
+                Math.max(0, Math.min(255, bestRgb[1] + 15)),
+                Math.max(0, Math.min(255, bestRgb[2] + 25))
+            ];
+
+            const page = document.querySelector('.auth-page');
+            if (page) {
+                const r = bestRgb[0], g = bestRgb[1], b = bestRgb[2];
+                const r2 = secondaryRgb[0], g2 = secondaryRgb[1], b2 = secondaryRgb[2];
+                
+                const hex = `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1)}`;
+                const hex2 = `#${((1 << 24) + (r2 << 16) + (g2 << 8) + b2).toString(16).slice(1)}`;
+
+                const themeVars = {
+                    '--auth-accent': hex,
+                    '--auth-accent-secondary': hex2,
+                    '--auth-accent-rgb': `${r}, ${g}, ${b}`,
+                    '--auth-glow': `rgba(${r}, ${g}, ${b}, 0.35)`,
+                    '--auth-glow-strong': `rgba(${r}, ${g}, ${b}, 0.55)`,
+                    '--auth-gradient': `linear-gradient(135deg, ${hex}, ${hex2})`,
+                    '--auth-shield-bg': `linear-gradient(135deg, rgba(${r}, ${g}, ${b}, 0.2), rgba(${r2}, ${g2}, ${b2}, 0.2))`
+                };
+
+                Object.keys(themeVars).forEach(key => page.style.setProperty(key, themeVars[key]));
+
+                try {
+                    localStorage.setItem('auth_theme_vars', JSON.stringify(themeVars));
+                } catch(e){}
+            }
+
+            if (authBgEngine && authBgEngine.setThemePalette) {
+                authBgEngine.setThemePalette(bestRgb, secondaryRgb);
+            }
+        } catch (e) {
+            console.log('Theme extraction note:', e);
+        }
+    };
+    img.src = imgUrl;
+}
+
+function toggleArtworkFocus() {
+    const page = document.querySelector('.auth-page');
+    const btn = document.getElementById('toggleArtworkBtn');
+    page.classList.toggle('focus-mode');
+    if (page.classList.contains('focus-mode')) {
+        btn.innerHTML = '<i class="ph ph-eye-slash"></i><span>Show Login Panel</span>';
+    } else {
+        btn.innerHTML = '<i class="ph ph-eye"></i><span>Focus Artwork & Quote</span>';
+    }
+}
+
+function updateLoginClock() {
+    const el = document.getElementById('loginClock');
+    if (el) {
+        const now = new Date();
+        el.textContent = now.toISOString().replace('T', ' ').substring(0, 19) + ' UTC';
+    }
+}
+setInterval(updateLoginClock, 1000);
+updateLoginClock();
+</script>
+{% endblock %}

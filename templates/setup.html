@@ -1,0 +1,596 @@
+{% extends "base.html" %}
+{% block title %}WHOAMI_404 // System Initialization Wizard{% endblock %}
+{% block content %}
+
+<style>
+    /* ═══════════════════════════════════════════════════════════
+       COMPACT ZERO-SCROLL SETUP WIZARD — DESIGN SYSTEM
+       ═══════════════════════════════════════════════════════════ */
+    :root {
+        --s-bg:           #060810;
+        --s-card-bg:      rgba(11, 17, 30, 0.85);
+        --s-border:       rgba(56, 189, 248, 0.2);
+        --s-cyan:         #38bdf8;
+        --s-glow-cyan:    rgba(56, 189, 248, 0.22);
+        --s-text-head:    #f8fafc;
+        --s-text-sub:     #94a3b8;
+        --s-text-dim:     #64748b;
+    }
+
+    html, body {
+        background: var(--s-bg) !important;
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+        overflow: hidden !important;
+    }
+
+    .setup-viewport {
+        position: fixed;
+        inset: 0;
+        z-index: 100;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 16px;
+        background: 
+            radial-gradient(circle at 50% 15%, rgba(14, 165, 233, 0.1) 0%, transparent 60%),
+            radial-gradient(circle at 85% 85%, rgba(99, 102, 241, 0.06) 0%, transparent 50%),
+            var(--s-bg);
+        overflow: hidden;
+    }
+
+    .setup-bg-grid {
+        position: absolute;
+        inset: 0;
+        background-image: 
+            linear-gradient(rgba(56, 189, 248, 0.025) 1px, transparent 1px),
+            linear-gradient(90deg, rgba(56, 189, 248, 0.025) 1px, transparent 1px);
+        background-size: 40px 40px;
+        pointer-events: none;
+    }
+
+    /* Compact Main Glassmorphic Card */
+    .setup-card {
+        width: 100%;
+        max-width: 600px;
+        background: var(--s-card-bg);
+        backdrop-filter: blur(28px);
+        -webkit-backdrop-filter: blur(28px);
+        border: 1px solid var(--s-border);
+        border-radius: 20px;
+        box-shadow: 
+            0 16px 48px rgba(0, 0, 0, 0.75),
+            0 0 30px rgba(14, 165, 233, 0.08);
+        padding: 24px 32px;
+        position: relative;
+        overflow: hidden;
+        animation: setupEnter 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .setup-card::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 2px;
+        background: linear-gradient(90deg, transparent, #38bdf8, #818cf8, transparent);
+    }
+
+    @keyframes setupEnter {
+        from { opacity: 0; transform: translateY(12px) scale(0.99); }
+        to   { opacity: 1; transform: translateY(0) scale(1); }
+    }
+
+    /* Brand Header Section */
+    .setup-header {
+        text-align: center;
+        margin-bottom: 16px;
+    }
+
+    .setup-badge-icon {
+        width: 44px;
+        height: 44px;
+        margin: 0 auto 8px auto;
+        border-radius: 12px;
+        background: linear-gradient(135deg, rgba(56, 189, 248, 0.12), rgba(99, 102, 241, 0.12));
+        border: 1px solid rgba(56, 189, 248, 0.3);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--s-cyan);
+        font-size: 1.4rem;
+        box-shadow: 0 0 16px var(--s-glow-cyan);
+    }
+
+    .setup-header h1 {
+        font-size: 1.35rem;
+        font-weight: 800;
+        letter-spacing: 2px;
+        color: var(--s-text-head);
+        margin-bottom: 2px;
+    }
+
+    .setup-header h1 span {
+        color: var(--s-cyan);
+    }
+
+    .setup-header p {
+        color: var(--s-text-sub);
+        font-size: 0.8rem;
+    }
+
+    /* Compact Step Progress Bar */
+    .wizard-track {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 16px;
+        position: relative;
+    }
+
+    .wizard-line {
+        position: absolute;
+        top: 50%;
+        left: 20%;
+        right: 20%;
+        height: 2px;
+        background: rgba(255, 255, 255, 0.08);
+        z-index: 1;
+        transform: translateY(-50%);
+    }
+
+    .wizard-line-fill {
+        height: 100%;
+        width: 0%;
+        background: linear-gradient(90deg, #38bdf8, #818cf8);
+        transition: width 0.35s ease;
+    }
+
+    .wizard-step {
+        position: relative;
+        z-index: 2;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        background: rgba(15, 23, 42, 0.95);
+        padding: 5px 14px;
+        border-radius: 20px;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        color: var(--s-text-dim);
+        font-size: 0.74rem;
+        font-weight: 600;
+        transition: all 0.3s ease;
+    }
+
+    .wizard-step.active {
+        border-color: var(--s-cyan);
+        color: #ffffff;
+        background: rgba(56, 189, 248, 0.12);
+        box-shadow: 0 0 14px rgba(56, 189, 248, 0.18);
+    }
+
+    .wizard-step.completed {
+        border-color: rgba(99, 102, 241, 0.4);
+        color: var(--s-text-sub);
+    }
+
+    .wizard-step-num {
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        background: rgba(255, 255, 255, 0.1);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.68rem;
+        font-weight: 700;
+    }
+
+    .wizard-step.active .wizard-step-num {
+        background: var(--s-cyan);
+        color: #060810;
+        font-weight: 800;
+    }
+
+    /* Panels */
+    .wizard-panel {
+        display: none;
+        animation: panelSlide 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .wizard-panel.active {
+        display: block;
+    }
+
+    @keyframes panelSlide {
+        from { opacity: 0; transform: translateX(8px); }
+        to   { opacity: 1; transform: translateX(0); }
+    }
+
+    /* Step 1: Compact Overview */
+    .overview-intro-box {
+        background: rgba(15, 23, 42, 0.45);
+        border: 1px solid rgba(56, 189, 248, 0.14);
+        border-radius: 12px;
+        padding: 14px 18px;
+        margin-bottom: 16px;
+    }
+
+    .overview-title {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        color: var(--s-cyan);
+        font-size: 0.88rem;
+        font-weight: 700;
+        margin-bottom: 6px;
+    }
+
+    .overview-desc {
+        color: var(--s-text-sub);
+        font-size: 0.78rem;
+        line-height: 1.45;
+        margin-bottom: 12px;
+    }
+
+    .feature-rows {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    .feature-row {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        background: rgba(8, 14, 26, 0.5);
+        border: 1px solid rgba(255, 255, 255, 0.05);
+        border-radius: 10px;
+        padding: 8px 12px;
+        transition: all 0.2s ease;
+    }
+
+    .feature-row:hover {
+        border-color: rgba(56, 189, 248, 0.3);
+        background: rgba(14, 165, 233, 0.05);
+    }
+
+    .feature-icon-box {
+        width: 32px;
+        height: 32px;
+        flex-shrink: 0;
+        border-radius: 8px;
+        background: rgba(56, 189, 248, 0.1);
+        border: 1px solid rgba(56, 189, 248, 0.2);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--s-cyan);
+        font-size: 1.05rem;
+    }
+
+    .feature-info h4 {
+        color: var(--s-text-head);
+        font-size: 0.8rem;
+        font-weight: 600;
+    }
+
+    .feature-info p {
+        color: var(--s-text-sub);
+        font-size: 0.73rem;
+    }
+
+    /* Step 2: Compact 2x2 Form Grid */
+    .form-grid-2x2 {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px 14px;
+        margin-bottom: 16px;
+    }
+
+    .form-group label {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 0.7rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        color: var(--s-text-sub);
+        margin-bottom: 6px;
+    }
+
+    .form-group label i {
+        color: var(--s-cyan);
+        font-size: 0.85rem;
+    }
+
+    .input-field {
+        width: 100%;
+        padding: 10px 14px;
+        background: rgba(15, 23, 42, 0.75);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 10px;
+        color: var(--s-text-head);
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 0.84rem;
+        outline: none;
+        transition: all 0.2s ease;
+    }
+
+    .input-field:focus {
+        border-color: var(--s-cyan);
+        box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.16);
+        background: rgba(15, 23, 42, 0.95);
+    }
+
+    .input-field::placeholder {
+        color: var(--s-text-dim);
+    }
+
+    /* Buttons */
+    .action-row {
+        display: flex;
+        gap: 12px;
+    }
+
+    .btn-primary {
+        flex: 1;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        padding: 11px 20px;
+        background: linear-gradient(135deg, #0284c7 0%, #2563eb 100%);
+        border: none;
+        border-radius: 10px;
+        color: #ffffff;
+        font-family: 'Inter', sans-serif;
+        font-size: 0.85rem;
+        font-weight: 700;
+        letter-spacing: 0.5px;
+        cursor: pointer;
+        box-shadow: 0 4px 14px rgba(2, 132, 199, 0.35);
+        transition: all 0.2s ease;
+    }
+
+    .btn-primary:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 6px 18px rgba(2, 132, 199, 0.45);
+        filter: brightness(1.08);
+    }
+
+    .btn-secondary {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        padding: 11px 16px;
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 10px;
+        color: var(--s-text-sub);
+        font-family: 'Inter', sans-serif;
+        font-size: 0.82rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.2s ease;
+    }
+
+    .btn-secondary:hover {
+        background: rgba(255, 255, 255, 0.1);
+        color: #ffffff;
+    }
+
+    /* Error Message Badge */
+    .setup-error-box {
+        margin-bottom: 14px;
+        padding: 10px 14px;
+        background: rgba(244, 63, 94, 0.1);
+        border: 1px solid rgba(244, 63, 94, 0.35);
+        border-radius: 8px;
+        color: #fb7185;
+        font-size: 0.78rem;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    /* Footer */
+    .setup-footer {
+        text-align: center;
+        margin-top: 14px;
+        padding-top: 10px;
+        border-top: 1px solid rgba(255, 255, 255, 0.06);
+        color: var(--s-text-dim);
+        font-size: 0.7rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+    }
+
+    .setup-footer i {
+        color: var(--s-cyan);
+    }
+</style>
+
+<div class="setup-viewport" data-has-error="{{ 'true' if error else 'false' }}">
+    <div class="setup-bg-grid"></div>
+
+    <div class="setup-card">
+        <!-- Brand Header -->
+        <div class="setup-header">
+            <div class="setup-badge-icon">
+                <i class="ph-bold ph-shield-check"></i>
+            </div>
+            <h1>WHOAMI_404 // <span>RINENGAN C2</span></h1>
+            <p>System Deployment & Operator Initialization Wizard</p>
+        </div>
+
+        <!-- Wizard Progress Track -->
+        <div class="wizard-track">
+            <div class="wizard-line">
+                <div class="wizard-line-fill" id="wizard-fill"></div>
+            </div>
+            <div class="wizard-step active" id="step-nav-1">
+                <span class="wizard-step-num">01</span>
+                <span>Overview & Scope</span>
+            </div>
+            <div class="wizard-step" id="step-nav-2">
+                <span class="wizard-step-num">02</span>
+                <span>Credentials & Config</span>
+            </div>
+        </div>
+
+        <!-- Error Message -->
+        {% if error %}
+        <div class="setup-error-box">
+            <i class="ph ph-warning-circle"></i>
+            <span>{{ error }}</span>
+        </div>
+        {% endif %}
+
+        <!-- STEP 1: Overview & Scope -->
+        <div class="wizard-panel active" id="panel-step-1">
+            <div class="overview-intro-box">
+                <div class="overview-title">
+                    <i class="ph ph-graduation-cap"></i>
+                    <span>Educational & Authorized Use Overview</span>
+                </div>
+                <p class="overview-desc">
+                    Rinengan C2 is an enterprise telemetry platform engineered for 
+                    <strong>authorized penetration testing, educational security research, and threat emulation</strong>.
+                </p>
+
+                <div class="feature-rows">
+                    <div class="feature-row">
+                        <div class="feature-icon-box">
+                            <i class="ph ph-shield-check"></i>
+                        </div>
+                        <div class="feature-info">
+                            <h4>AES-256-GCM Telemetry Engine</h4>
+                            <p>End-to-end payload encryption securing all dispatches and agent responses.</p>
+                        </div>
+                    </div>
+
+                    <div class="feature-row">
+                        <div class="feature-icon-box">
+                            <i class="ph ph-keyhole"></i>
+                        </div>
+                        <div class="feature-info">
+                            <h4>Google Authenticator (2FA)</h4>
+                            <p>Single-operator session locking with mandatory 2FA verification.</p>
+                        </div>
+                    </div>
+
+                    <div class="feature-row">
+                        <div class="feature-icon-box">
+                            <i class="ph ph-video-camera"></i>
+                        </div>
+                        <div class="feature-info">
+                            <h4>WebRTC Live Streaming</h4>
+                            <p>Peer-to-peer desktop screen, camera, and microphone feeds.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="action-row">
+                <button type="button" class="btn-primary" onclick="setWizardStep(2)">
+                    <span>Next: Configure Credentials</span>
+                    <i class="ph-bold ph-arrow-right"></i>
+                </button>
+            </div>
+        </div>
+
+        <!-- STEP 2: Compact 2x2 Form Grid -->
+        <div class="wizard-panel" id="panel-step-2">
+            <form method="POST" autocomplete="off">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+                <div class="form-grid-2x2">
+                    <div class="form-group">
+                        <label for="setup-user">
+                            <i class="ph ph-user"></i>
+                            <span>Operator Username</span>
+                        </label>
+                        <input type="text" id="setup-user" name="username" class="input-field" placeholder="e.g. admin" value="admin" required minlength="3">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="setup-url">
+                            <i class="ph ph-globe"></i>
+                            <span>Panel URL (Optional)</span>
+                        </label>
+                        <input type="text" id="setup-url" name="panel_url" class="input-field" placeholder="http://127.0.0.1:33875">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="setup-pass">
+                            <i class="ph ph-key"></i>
+                            <span>Master Passphrase</span>
+                        </label>
+                        <input type="password" id="setup-pass" name="password" class="input-field" placeholder="Min 8 chars" required minlength="8">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="setup-confirm">
+                            <i class="ph ph-check-circle"></i>
+                            <span>Confirm Passphrase</span>
+                        </label>
+                        <input type="password" id="setup-confirm" name="confirm" class="input-field" placeholder="Re-enter passphrase" required minlength="8">
+                    </div>
+                </div>
+
+                <div class="action-row">
+                    <button type="button" class="btn-secondary" onclick="setWizardStep(1)">
+                        <i class="ph-bold ph-arrow-left"></i>
+                        <span>Back</span>
+                    </button>
+                    <button type="submit" class="btn-primary">
+                        <i class="ph-bold ph-rocket-launch"></i>
+                        <span>Initialize C2 Framework</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+
+        <!-- Footer -->
+        <div class="setup-footer">
+            <i class="ph ph-lock-key"></i>
+            <span>WHOAMI_404 // Rinengan Telemetry Engine • AES-256 Encrypted</span>
+        </div>
+    </div>
+</div>
+
+<script>
+    function setWizardStep(step) {
+        document.querySelectorAll('.wizard-panel').forEach(p => p.classList.remove('active'));
+        document.getElementById(`panel-step-${step}`).classList.add('active');
+
+        const nav1 = document.getElementById('step-nav-1');
+        const nav2 = document.getElementById('step-nav-2');
+        const fill = document.getElementById('wizard-fill');
+
+        if (step === 1) {
+            nav1.className = 'wizard-step active';
+            nav2.className = 'wizard-step';
+            fill.style.width = '0%';
+        } else {
+            nav1.className = 'wizard-step completed';
+            nav2.className = 'wizard-step active';
+            fill.style.width = '100%';
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        const viewport = document.querySelector('.setup-viewport');
+        if (viewport && viewport.dataset.hasError === 'true') {
+            setWizardStep(2);
+        }
+    });
+</script>
+
+{% endblock %}

