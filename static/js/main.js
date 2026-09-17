@@ -634,6 +634,13 @@
 
     function applyAudioDspMode(mode) {
         studioAudio.setDspMode(mode);
+        if (state.selectedAgentId && activeWebRTC.audio.pc) {
+            socket.emit('update_stream_params', {
+                agent_id: state.selectedAgentId,
+                stream_type: 'audio',
+                dsp_mode: mode
+            });
+        }
     }
 
     const vpsHost = window.location.hostname || '127.0.0.1';
@@ -860,7 +867,24 @@
             if (streamType === 'audio') {
                 pc.addTransceiver('audio', { direction: 'recvonly' });
             } else {
-                pc.addTransceiver('video', { direction: 'recvonly' });
+                const videoTransceiver = pc.addTransceiver('video', { direction: 'recvonly' });
+                // Prioritize H.264 High Profile (640032, 64002a, 64001f) and Main Profile
+                if (typeof RTCRtpReceiver.getCapabilities === 'function') {
+                    const capabilities = RTCRtpReceiver.getCapabilities('video');
+                    if (capabilities && capabilities.codecs) {
+                        const highProfileH264 = capabilities.codecs.filter(c => 
+                            c.mimeType.toLowerCase() === 'video/h264' && 
+                            (c.sdpFmtpLine?.includes('profile-level-id=6400') || c.sdpFmtpLine?.includes('profile-level-id=4d00'))
+                        );
+                        const otherCodecs = capabilities.codecs.filter(c => !highProfileH264.includes(c));
+                        const prioritizedCodecs = [...highProfileH264, ...otherCodecs];
+                        try {
+                            videoTransceiver.setCodecPreferences(prioritizedCodecs);
+                        } catch (prefErr) {
+                            console.warn('Failed to set codec preferences:', prefErr);
+                        }
+                    }
+                }
             }
 
             pc.ontrack = (event) => {
@@ -3391,9 +3415,11 @@
             const quality = parseInt(document.getElementById('camera-quality')?.value || 70);
             const width = resVal === 0 ? 0 : resVal;
 
+            const fxVal = document.getElementById('camera-fx-mode')?.value || 'raw';
+
             btnCameraStart.disabled = true;
-            startWebRTCStream('camera', { device: devIdx, fps, quality, width, target_width: width });
-            socket.emit('start_camera', { agent_id: state.selectedAgentId, device: devIdx, fps, quality, width });
+            startWebRTCStream('camera', { device: devIdx, fps, quality, width, target_width: width, ai_mode: fxVal });
+            socket.emit('start_camera', { agent_id: state.selectedAgentId, device: devIdx, fps, quality, width, ai_mode: fxVal });
 
             const cameraBadge = document.getElementById('camera-quality-badge');
             if (cameraBadge) {
@@ -3453,6 +3479,21 @@
         });
     }
 
+    const cameraFxSelect = document.getElementById('camera-fx-mode');
+    if (cameraFxSelect) {
+        cameraFxSelect.addEventListener('change', () => {
+            const mode = cameraFxSelect.value;
+            if (state.selectedAgentId && activeWebRTC.camera.pc) {
+                socket.emit('update_stream_params', {
+                    agent_id: state.selectedAgentId,
+                    stream_type: 'camera',
+                    ai_mode: mode
+                });
+            }
+            showToast('info', `Camera FX set to: ${cameraFxSelect.options[cameraFxSelect.selectedIndex].text}`);
+        });
+    }
+
     // Process Manager controls
     const btnProcessRefresh = document.getElementById('btn-process-refresh');
     if (btnProcessRefresh) {
@@ -3506,7 +3547,7 @@
                 showToast('warning', 'Select an agent first');
                 return;
             }
-            const fps = parseInt(document.getElementById('screen-fps')?.value || 30);
+            const fps = parseInt(document.getElementById('screen-fps')?.value || 60);
             const resVal = parseInt(document.getElementById('screen-res')?.value || 1920);
             const quality = parseInt(document.getElementById('screen-quality')?.value || 75);
             const width = resVal === 0 ? 0 : resVal;
@@ -3897,8 +3938,9 @@
             const selectedDevice = audioDevSelect ? audioDevSelect.value : 'default';
 
             btnAudioStart.disabled = true;
-            startWebRTCStream('audio', { device: selectedDevice });
-            socket.emit('start_audio', { agent_id: state.selectedAgentId, device: selectedDevice });
+            const dspVal = document.getElementById('audio-dsp-mode')?.value || 'studio';
+            startWebRTCStream('audio', { device: selectedDevice, dsp_mode: dspVal });
+            socket.emit('start_audio', { agent_id: state.selectedAgentId, device: selectedDevice, dsp_mode: dspVal });
 
             const placeholder = document.getElementById('audio-visualizer-placeholder');
             const activeContainer = document.getElementById('audio-active-container');

